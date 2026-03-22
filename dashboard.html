@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>FOX NOC | Mission Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { background: #020617; font-family: 'Inter', sans-serif; color: white; min-height: 100vh; overflow-x: hidden; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
+        .status-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .grid-bg { background-image: linear-gradient(rgba(16, 185, 129, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(16, 185, 129, 0.05) 1px, transparent 1px); background-size: 30px 30px; }
+    </style>
+</head>
+<body class="grid-bg p-4 md:p-8">
+    <script>
+    // --- Gemini AI Drawer ---
+    function typeWriter(text, elementId, speed = 20) {
+        const el = document.getElementById(elementId);
+        el.innerHTML = '';
+        let i = 0;
+        function write() {
+            if (i < text.length) {
+                el.innerHTML += text.charAt(i);
+                i++;
+                setTimeout(write, speed);
+            }
+        }
+        write();
+    }
+
+    function analyzeHost(ip, vendor) {
+        // Abre painel lateral (simples)
+        let drawer = document.getElementById('ai-drawer');
+        if (!drawer) {
+            drawer = document.createElement('div');
+            drawer.id = 'ai-drawer';
+            drawer.className = 'fixed top-0 right-0 w-[400px] h-full bg-slate-900/95 border-l border-white/10 shadow-2xl z-50 flex flex-col';
+            drawer.innerHTML = `
+                <div class="p-6 border-b border-white/10">
+                    <h2 class="text-blue-500 text-xs font-bold uppercase">Gemini AI Analysis</h2>
+                    <div class="mt-2 text-xs text-slate-400" id="ai-meta"></div>
+                </div>
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <pre class="text-green-400 text-xs font-mono" id="ai-response-text">Carregando Inteligência...</pre>
+                </div>
+                <button onclick="document.getElementById('ai-drawer').remove()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold uppercase tracking-widest">Fechar</button>
+            `;
+            document.body.appendChild(drawer);
+        } else {
+            drawer.style.display = 'block';
+            document.getElementById('ai-response-text').innerText = 'Carregando Inteligência...';
+        }
+        document.getElementById('ai-meta').innerHTML = `<b>IP:</b> ${ip} <br><b>Vendor:</b> ${vendor}`;
+        fetch('/api/analyze/' + ip)
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    typeWriter(data.error, 'ai-response-text');
+                } else {
+                    typeWriter(data.report, 'ai-response-text');
+                }
+            })
+            .catch(() => {
+                typeWriter('⚠️ Inteligência Offline: Verifique a API Key.', 'ai-response-text');
+            });
+    }
+
+    // --- Adiciona clique na tabela ---
+    // --- Topologia de Rede ---
+    function updateTopology(hosts) {
+        if (!hosts || hosts.length === 0) return;
+        // Define nós
+        const nodes = [
+            { id: 'gateway', label: 'Gateway (Huawei/MikroTik)', color: { background: '#0f0', border: '#0f0' }, font: { color: '#fff', size: 18, face: 'monospace' } }
+        ];
+        hosts.forEach(host => {
+            nodes.push({
+                id: host.ip,
+                label: `${host.ip}\n${host.hostname || host.vendor || '-'}`,
+                color: { background: '#222', border: '#10b981' },
+                font: { color: '#fff', size: 14, face: 'monospace' }
+            });
+        });
+        // Define edges
+        const edges = hosts.map(host => ({
+            from: 'gateway',
+            to: host.ip,
+            color: { color: '#10b981', highlight: '#f00', inherit: false },
+            arrows: { to: { enabled: false } },
+            smooth: { type: 'continuous' }
+        }));
+        // Cria rede
+        const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+        const options = {
+            layout: { hierarchical: false },
+            physics: { enabled: true, barnesHut: { gravitationalConstant: -2000 } },
+            nodes: {
+                shape: 'dot',
+                size: 30,
+                borderWidth: 2,
+                shadow: true
+            },
+            edges: {
+                width: 2,
+                color: { color: '#10b981', highlight: '#f00' },
+                smooth: true,
+                shadow: true
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 100
+            },
+            autoResize: true,
+            height: '250px',
+            width: '100%'
+        };
+        container.innerHTML = '';
+        const network = new vis.Network(container, data, options);
+        // Clique em nó: abre modal lateral
+        network.on('click', function(params) {
+            if (params.nodes.length > 0 && params.nodes[0] !== 'gateway') {
+                const nodeId = params.nodes[0];
+                const node = nodes.find(n => n.id === nodeId);
+                analyzeHost(nodeId, node.label);
+            }
+        });
+        // Spinner neon SCANNING
+        function showScanningSpinner() {
+            let spinner = document.getElementById('scanning-spinner');
+            if (!spinner) {
+                spinner = document.createElement('div');
+                spinner.id = 'scanning-spinner';
+                spinner.className = 'fixed top-4 right-4 z-50 flex items-center gap-2';
+                spinner.innerHTML = `
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-4 border-b-4 border-green-400 neon"></div>
+                    <span class="text-green-400 font-bold text-xs">SCANNING...</span>
+                `;
+                document.body.appendChild(spinner);
+            }
+            spinner.style.display = 'flex';
+        }
+        function hideScanningSpinner() {
+            const spinner = document.getElementById('scanning-spinner');
+            if (spinner) spinner.style.display = 'none';
+        }
+    }
+
+    async function fetchResults() {
+        showScanningSpinner();
+        try {
+            const res = await fetch('/api/scan/results');
+            if (!res.ok) throw new Error('API offline');
+            const hosts = await res.json();
+            updateTopology(hosts);
+            const tbody = document.getElementById('host-list');
+            tbody.innerHTML = '';
+            hosts.forEach(host => {
+                const tr = document.createElement('tr');
+                tr.style.cursor = 'pointer';
+                tr.onclick = () => analyzeHost(host.ip, host.hostname || host.vendor || '-');
+                tr.innerHTML = `
+                    <td class="p-4 font-mono text-green-400">${host.ip}</td>
+                    <td class="p-4 text-xs text-slate-300">${host.hostname || '-'}</td>
+                    <td class="p-4"><span class="px-2 py-1 rounded bg-green-500/10 text-green-500 text-xs font-bold">Online</span></td>
+                    <td class="p-4 text-xs text-slate-400">Analisar</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('host-count').innerText = hosts.length;
+            document.getElementById('target-subnet').innerText = hosts.length > 0 ? `${hosts[0].ip.split('.').slice(0,3).join('.')}.0/24` : '0.0.0.0/24';
+        } catch (e) {
+            const tbody = document.getElementById('host-list');
+            tbody.innerHTML = `<tr><td class="p-4 text-xs text-red-500" colspan="4">API offline ou erro de conexão.</td></tr>`;
+            document.getElementById('host-count').innerText = '0';
+            document.getElementById('target-subnet').innerText = '0.0.0.0/24';
+        }
+        hideScanningSpinner();
+    }
+    setInterval(fetchResults, 5000);
+    window.onload = fetchResults;
+    </script>
+        <div>
+            <h1 class="text-2xl font-black italic tracking-tighter text-white">FOX <span class="text-green-500">NOC</span></h1>
+            <div class="flex items-center gap-2 mt-1">
+                <span class="w-2 h-2 bg-green-500 rounded-full status-pulse"></span>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest" id="mission-status">Mission Active: Scanning Subnet...</p>
+            </div>
+        </div>
+        <button onclick="window.location.href='/'" class="text-[10px] font-bold text-slate-500 hover:text-white uppercase tracking-widest border border-white/10 px-4 py-2 rounded-lg transition-all">Abort Mission</button>
+    </header>
+
+    <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div class="lg:col-span-1 space-y-6">
+            <div class="glass p-6 rounded-[2rem]">
+                <h2 class="text-[10px] font-bold text-slate-500 uppercase mb-4">Network Info</h2>
+                <div class="space-y-4">
+                    <div>
+                        <p class="text-xs text-slate-400">Target Subnet</p>
+                        <p class="text-lg font-mono font-bold text-green-500" id="target-subnet">0.0.0.0/24</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400">Active Hosts</p>
+                        <p class="text-3xl font-black" id="host-count">0</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="glass p-6 rounded-[2rem] border-l-4 border-l-blue-500">
+                <h2 class="text-[10px] font-bold text-blue-500 uppercase mb-2">Gemini AI Analysis</h2>
+                <p class="text-xs text-slate-300 leading-relaxed italic" id="ai-verdict">Aguardando dados para diagnóstico...</p>
+            </div>
+        </div>
+
+        <div class="lg:col-span-3">
+            <div class="glass rounded-[2rem] overflow-hidden">
+                <div id="network-map" class="h-64 w-full bg-black/20 rounded-2xl mb-6 border border-white/5"></div>
+                <table class="w-full text-left">
+                    <thead class="bg-white/5 border-b border-white/10">
+                        <tr>
+                            <th class="p-4 text-[10px] font-bold text-slate-400 uppercase">Host / IP</th>
+                            <th class="p-4 text-[10px] font-bold text-slate-400 uppercase">Vendor / OS</th>
+                            <th class="p-4 text-[10px] font-bold text-slate-400 uppercase">Status</th>
+                            <th class="p-4 text-[10px] font-bold text-slate-400 uppercase">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="host-list">
+                        <tr class="border-b border-white/5">
+                            <td class="p-4 text-xs font-mono text-slate-400" colspan="4">Iniciando monitoramento de pacotes...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

@@ -1,7 +1,7 @@
 # Network Diagnoser AI — Documentação Completa
 
 ## Visão Geral
-Diagnóstico inteligente de redes domésticas e SMB, com coleta ARP, SNMP, DHCP, análise de topologia, detecção de problemas e diagnóstico via IA (Gemini API). Gera relatórios detalhados em JSON e Markdown.
+Diagnóstico inteligente de redes domésticas e SMB, com coleta ARP, SNMP, DHCP, análise de topologia, detecção de problemas e diagnóstico via IA (Gemini API). Gera relatórios detalhados em JSON, Markdown, PDF e salva automaticamente no banco SQLite (network_scanner.db). Inclui dashboard, topologia, performance, histórico, filtros avançados e exportação.
 
 ## Estrutura do Projeto
 - `app.py` — CLI principal
@@ -9,7 +9,9 @@ Diagnóstico inteligente de redes domésticas e SMB, com coleta ARP, SNMP, DHCP,
 - `api.py` — API REST (FastAPI)
 - `scanner/` — módulos de coleta (ARP, SNMP, DHCP, etc)
 - `analyzer/` — análise, topologia, IA
-- `output/` — geração de relatórios
+- `output/` — geração de relatórios (JSON, Markdown, PDF)
+- `database.py` — persistência dos relatórios em SQLite
+- `network_scanner.db` — banco de dados SQLite (histórico de scans)
 - `collectors/` — integrações MikroTik, SNMP
 - `services/` — orquestração da pipeline
 - `tests/` — testes automatizados
@@ -46,4 +48,6 @@ pytest
 ## Observações
 - Para diagnóstico IA, configure a variável `GEMINI_API_KEY`.
 - Para máxima detecção, rode como root/sudo.
-- Relatórios são salvos em JSON e Markdown.
+- Relatórios são salvos em JSON, Markdown, PDF e SQLite (network_scanner.db).
+- O banco permite histórico, filtros, consultas rápidas via API/CLI e exportação em PDF.
+- Endpoints avançados: dashboard, topologia, performance, scan em background, filtros por severidade/IP.

@@ -1,22 +1,54 @@
 from __future__ import annotations
-"""FastAPI interface for Network Diagnoser AI - Versão Final Polida."""
-
 import os
 import asyncio
 import logging
-from typing import Any
+import time
+import subprocess
+import psutil
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from collections import deque
+
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+from fastapi.exceptions import RequestValidationError
 
-from config import AppConfig, load_config
+# --- SEUS MÓDULOS (Certifique-se que os caminhos estão corretos) ---
+from performance import ping_stats
+import database
 from services.diagnosis_service import DiagnosisService
-from utils.network_utils import list_network_interfaces
+from config import load_config
+from scanner.arp_scanner import ARPScanner
+from collectors.snmp_metrics import get_mikrotik_health as _snmp_mikrotik_health
+from collectors.mikrotik_api import get_dhcp_details as _mtk_dhcp, get_wifi_clients as _mtk_wifi
+from collectors.twibi_api import get_mesh_status as _twibi_mesh
 
-app = FastAPI(title="Network Diagnoser AI API")
+# --- CONFIGURAÇÃO DE LOG ---
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger("FoxAPI")
 
-# Configuração de CORS para permitir acesso do Frontend (Porta 8080)
+# --- INICIALIZAÇÃO ---
+app = FastAPI(title="Fox Network NOC")
+app_config = load_config() 
+diagnosis_service = DiagnosisService(config=app_config)
+
+# Histórico de tráfego (30 amostras para o Chart.js)
+traffic_history = deque(maxlen=30)
+for _ in range(30): traffic_history.append({"download": 0, "upload": 0})
+last_snmp_data = {"rx": 0, "tx": 0, "ts": 0}
+
+# Cache traceroute (TTL 5 min — traceroute é lento)
+_tr_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
+_TR_TTL = 300
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,143 +57,732 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Modelos de Dados ---
+# --- MODELOS ---
+class NetworkTarget(BaseModel):
+    interface: str
+    subnet: str
 
-class ScanRequest(BaseModel):
-    subnet: str = Field(default="192.168.88.0/24")
-    interface: str | None = Field(default=None)
-    ping_count: int = 4
-    dns_test_domain: str = "google.com"
-    traceroute_target: str = "8.8.8.8"
-    expected_active_hosts: int = 30
-    snmp_enabled: bool = True
-    mdns_enabled: bool = True
-    ssdp_enabled: bool = True
-    latency_enabled: bool = True
-    dns_enabled: bool = True
-    route_enabled: bool = True
-    dhcp_enabled: bool = True
-    port_scan_enabled: bool = True
+class ScanConfig(BaseModel):
+    interface: str = "eth0"
+    subnet: str = "192.168.100.0/24"
+    expected_hosts: Optional[int] = 30
+    modules: List[str] = Field(default_factory=list)
+    # Suporte a múltiplas redes simultâneas
+    networks: List[NetworkTarget] = Field(default_factory=list)
 
-# --- Endpoints ---
+# --- 1. TELEMETRIA RÁPIDA (OVERWATCH) ---
+# IMPORTANTE: Estas rotas devem vir ANTES de qualquer app.mount
 
-@app.get("/interfaces")
-async def get_interfaces():
-    """Retorna as placas de rede válidas do sistema."""
+@app.get("/system/metrics")
+async def get_system_metrics():
+    """Métricas do node: CPU, temperatura e contagem de dispositivos do último scan."""
+    cpu = psutil.cpu_percent(interval=None)
+    temp = 40
+    if hasattr(psutil, "sensors_temperatures"):
+        temps = psutil.sensors_temperatures()
+        if temps and 'coretemp' in temps:
+            temp = temps['coretemp'][0].current
+
+    device_count = 0
     try:
-        return {"interfaces": list_network_interfaces()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        row = database.get_last_scan()
+        if row:
+            device_count = row.get('device_count', 0) or 0
+    except Exception:
+        pass
 
-@app.post("/scan/save")
-async def run_scan_and_save(req: ScanRequest):
-    """Executa o diagnóstico e salva os resultados."""
+    return {
+        "cpu": cpu,
+        "temp": temp,
+        "temp_status": "NOMINAL" if cpu < 80 else "ALTA CARGA",
+        "devices": device_count
+    }
+
+@app.get("/performance/ping")
+async def get_performance_ping():
+    """Retorna campos exatos para o dashboard: latency, jitter, loss"""
     try:
-        cfg = load_config()
-        # Sobrescreve configurações com dados do request
-        cfg = cfg.__class__(
-            subnet=req.subnet,
-            interface=req.interface or cfg.interface,
-            ping_count=req.ping_count,
-            dns_test_domain=req.dns_test_domain,
-            traceroute_target=req.traceroute_target,
-            expected_active_hosts=req.expected_active_hosts,
-            snmp_enabled=req.snmp_enabled,
-            mdns_enabled=req.mdns_enabled,
-            ssdp_enabled=req.ssdp_enabled,
-            latency_enabled=req.latency_enabled,
-            dns_enabled=req.dns_enabled,
-            route_enabled=req.route_enabled,
-            dhcp_enabled=req.dhcp_enabled,
-            port_scan_enabled=req.port_scan_enabled,
-            gemini_api_key=os.getenv("GEMINI_API_KEY"),
-            snmp_community=os.getenv("ND_SNMP_COMMUNITY", "public")
-        )
-
-        service = DiagnosisService(cfg)
-        
-        # CORREÇÃO CRÍTICA: Aguardando a corrotina assíncrona
-        payload = await service._execute_pipeline()
-        
-        # Gera metadados e formata o relatório final
-        from output.report_generator import ReportGenerator
-        report_with_meta = ReportGenerator().build(payload)
-        
-        # Persistência
-        service.save_report(report_with_meta, path="network_report.json")
-        service.save_markdown_report(report_with_meta, path="network_report.md")
-
-        return {"status": "success", "generated_at": report_with_meta.get("generated_at")}
-    
+        stats = await ping_stats()
+        # Mapeia os nomes das chaves para o que o JS espera
+        return {
+            "latency": stats.get("latency", 0),
+            "jitter": stats.get("jitter", 0),
+            "loss": stats.get("loss", 0)
+        }
     except Exception as e:
-        logging.error(f"Erro no Scan: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Erro no ping: {e}")
+        return {"latency": 0, "jitter": 0, "loss": 100}
+
+@app.get("/network/interfaces")
+async def get_network_interfaces():
+    """Lista interfaces de rede IPv4 disponíveis (exceto loopback e virtuais)"""
+    try:
+        interfaces = psutil.net_if_addrs()
+        result = []
+        for name, addrs in interfaces.items():
+            if name == 'lo' or 'veth' in name or 'docker' in name:
+                continue
+            for addr in addrs:
+                if addr.family == 2:  # IPv4
+                    ip = addr.address
+                    parts = ip.split('.')
+                    subnet_val = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+                    result.append({
+                        "id": name,
+                        "display": f"{name} - {ip}",
+                        "subnet": subnet_val
+                    })
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao listar interfaces: {e}")
+        return []
+
+@app.get("/network/traffic")
+async def get_network_traffic():
+    """Cálculo de Throughput em Mbps via contadores da interface local"""
+    global last_snmp_data
+    now = time.time()
+
+    try:
+        counters = psutil.net_io_counters()
+        current_rx = counters.bytes_recv
+        current_tx = counters.bytes_sent
+
+        dt = now - last_snmp_data["ts"]
+        mbps_down = 0
+        mbps_up = 0
+
+        if last_snmp_data["ts"] > 0 and dt > 0:
+            mbps_down = round(((current_rx - last_snmp_data["rx"]) * 8) / dt / 1_000_000, 2)
+            mbps_up = round(((current_tx - last_snmp_data["tx"]) * 8) / dt / 1_000_000, 2)
+
+        last_snmp_data = {"rx": current_rx, "tx": current_tx, "ts": now}
+        traffic_history.append({"download": max(mbps_down, 0), "upload": max(mbps_up, 0)})
+        return {"history": list(traffic_history)}
+
+    except Exception as e:
+        logger.error(f"Erro ao obter tráfego: {e}")
+        return {"history": list(traffic_history)}
+
+# --- 2. TRACEROUTE LIVE ---
+
+@app.get("/network/traceroute")
+async def get_traceroute():
+    """Traceroute até 8.8.8.8 com latência por salto e detecção de gargalo. Cache 5 min."""
+    global _tr_cache
+    now = time.time()
+    if _tr_cache["data"] and now - _tr_cache["ts"] < _TR_TTL:
+        return _tr_cache["data"]
+    try:
+        from scanner.route_analyzer import RouteAnalyzer
+        loop = asyncio.get_running_loop()
+        analyzer = RouteAnalyzer(max_hops=20)
+        result = await loop.run_in_executor(None, analyzer.analyze, "8.8.8.8")
+
+        raw_hops = result.get("hops", [])
+        # Filtra saltos sem resposta e numera sequencialmente
+        valid: list[dict] = []
+        for h in raw_hops:
+            if h.get("ip") == "*" or h.get("latency") is None:
+                continue
+            valid.append({
+                "hop_num": len(valid) + 1,
+                "ip":       h["ip"],
+                "latency":  round(h["latency"], 2),
+                "is_private": h.get("is_private", False),
+            })
+
+        # Detecção de gargalo: salto cujo delta > 30ms E rtt > 15ms
+        for i, hop in enumerate(valid):
+            prev = valid[i - 1]["latency"] if i > 0 else 0.0
+            delta = hop["latency"] - prev
+            hop["delta_ms"]      = round(delta, 1)
+            hop["is_bottleneck"] = i > 0 and delta > 30 and hop["latency"] > 15
+
+        data = {
+            "hops":         valid,
+            "total_hops":   len(valid),
+            "target":       result.get("target", "8.8.8.8"),
+            "nat_suspected": result.get("nat_multiple_suspected", False),
+            "has_bottleneck": any(h["is_bottleneck"] for h in valid),
+        }
+        _tr_cache = {"data": data, "ts": now}
+        return data
+    except Exception as e:
+        logger.error(f"Traceroute error: {e}")
+        return {"hops": [], "error": str(e)}
+
+# --- 3. TOPOLOGIA (MAPA TÁTICO) ---
+
+@app.get("/topology/map")
+async def get_topology_map():
+    """Retorna a estrutura hierárquica para o JS percorrer"""
+    # Estrutura compatível com o loop do seu index.html
+    return {
+        "children": [
+            {
+                "name": "Huawei",
+                "children": [
+                    {
+                        "name": "MikroTik",
+                        "ports": [
+                            {"devices": [{"name": "Twibi Principal"}]}, # ETH0
+                            {"devices": []},                           # ETH1
+                            {"devices": [{"name": "Twibi AX"}]},        # ETH2
+                            {"devices": []},                           # ETH3
+                            {"devices": [{"name": "Twibi AD"}]}         # ETH4
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+# --- 4. SERVIÇOS DE DIAGNÓSTICO (INTELLIGENCE) ---
 
 @app.get("/dashboard/stats")
 async def get_dashboard_stats():
-    """Dados resumidos para o Dashboard Web."""
     try:
-        if not os.path.exists("network_report.json"):
-            return {"error": "Sem dados"}
-            
-        report = DiagnosisService.load_report(path="network_report.json")
-        data = report.get("report", {})
-        health = data.get("mikrotik_health", {})
-        devices = data.get("devices", [])
+        row = database.get_last_scan()
+        if not row: 
+            return {"stats": {"ai_summary": {"summary": "Aguardando primeiro scan..."}}}
         
-        # Pega o status do CA02 (Double NAT)
-        prd = data.get("prd_acceptance", {}).get("criteria", {})
-        nat_failed = prd.get("CA02", {}).get("status") == "failed"
+        # Desembrulha recursivamente todos os níveis de {"parsed": ...}
+        ai_diag = row.get('ai_diagnosis', {})
+        while isinstance(ai_diag, dict) and list(ai_diag.keys()) == ['parsed']:
+            ai_diag = ai_diag['parsed']
+        parsed = ai_diag if isinstance(ai_diag, dict) else {}
+        
+        raw_json = row.get('raw_json', {})
+        # Unwrap nested {"generated_at":..., "report":{...}} structure
+        raw_report = raw_json.get('report', raw_json) if isinstance(raw_json, dict) and 'report' in raw_json else raw_json
 
         return {
-            "mikrotik": {
-                "temperature": health.get("temperature", 0),
-                "voltage": health.get("voltage", 0),
-                "cpu": health.get("cpu_usage", 0),
-                "uptime": health.get("uptime_str", "N/A")
-            },
             "stats": {
-                "active_devices": sum(1 for d in devices if "Ativo" in str(d.get("status"))),
-                "total_devices": len(devices),
-                "double_nat_alert": nat_failed
+                "timestamp": row.get('timestamp'),
+                "ai_summary": parsed
             },
-            "raw_report": data
+            "raw_report": raw_report
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
 
-@app.get("/report/pdf")
-async def download_pdf():
-    """
-    Ponto 4: Exporta o relatório em PDF. 
-    Requer a instalação de: pip install fpdf2
-    """
-    from fpdf import FPDF
-    
-    md_path = "network_report.md"
-    pdf_path = "network_report.pdf"
-    
-    if not os.path.exists(md_path):
-        raise HTTPException(status_code=404, detail="Gere um scan primeiro.")
-
+async def _run_and_save(interface: str, subnet: str, modules: list, extra_networks: list = None):
+    """Executa o scan (uma ou múltiplas redes) e persiste no banco de dados."""
+    import json
+    from datetime import datetime
     try:
-        with open(md_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        payload = await diagnosis_service.run(interface=interface, subnet=subnet, modules=modules)
+        if not payload:
+            logger.error("Scan retornou payload vazio — não salvo.")
+            return
 
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=10)
-        
-        for line in content.split("\n"):
-            # Limpeza simples de caracteres Markdown para o PDF
-            clean_line = line.replace("#", "").replace("*", "").replace("`", "")
-            pdf.cell(200, 8, txt=clean_line, ln=True)
-            
-        pdf.output(pdf_path)
-        return FileResponse(pdf_path, media_type="application/pdf", filename="relatorio_rede.pdf")
+        # Dual-network: roda scans adicionais e mescla devices
+        if extra_networks:
+            for net in extra_networks:
+                logger.info(f"🔀 Scan adicional: {net['subnet']} via {net['interface']}")
+                try:
+                    extra = await diagnosis_service.run(
+                        interface=net["interface"],
+                        subnet=net["subnet"],
+                        modules=modules,
+                    )
+                    if extra and extra.get("devices"):
+                        existing_ips = {d["ip"] for d in payload.get("devices", [])}
+                        new_devices = [d for d in extra["devices"] if d.get("ip") not in existing_ips]
+                        payload["devices"].extend(new_devices)
+                        logger.info(f"  ↳ +{len(new_devices)} dispositivos de {net['subnet']}")
+                except Exception as e:
+                    logger.warning(f"Scan adicional {net['subnet']} falhou: {e}")
+
+        device_count  = len(payload.get("devices", []))
+        temp_mikrotik = (payload.get("mikrotik_health") or {}).get("temperature")
+        raw_json      = json.dumps({"generated_at": datetime.now().isoformat(), "report": payload},
+                                   ensure_ascii=False, default=str)
+        # ai_diagnosis já vem como {"parsed": {...}} do GeminiAnalyzer — guarda direto
+        ai_diag     = payload.get("ai_diagnosis")
+        ai_analysis = json.dumps(ai_diag, ensure_ascii=False, default=str) if ai_diag else ""
+
+        database.insert_scan(device_count, temp_mikrotik, raw_json, ai_analysis)
+        logger.info(f"✅ Scan salvo no banco: {device_count} dispositivos, temp={temp_mikrotik}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {str(e)}")
+        logger.error(f"❌ Erro ao salvar scan: {e}", exc_info=True)
+
+@app.post("/scan/start")
+async def start_scan(config: ScanConfig, background_tasks: BackgroundTasks):
+    networks_info = f" + {len(config.networks)} rede(s) extra" if config.networks else ""
+    logger.info(f"🚀 MISSÃO INICIADA: {config.subnet}{networks_info}")
+    extra = [{"interface": n.interface, "subnet": n.subnet} for n in config.networks]
+    background_tasks.add_task(
+        _run_and_save,
+        interface=config.interface,
+        subnet=config.subnet,
+        modules=config.modules,
+        extra_networks=extra or None,
+    )
+    return {"status": "success"}
+
+# --- 4. MIKROTIK ---
+
+@app.get("/mikrotik/health")
+async def get_mikrotik_health_endpoint():
+    """Saúde do MikroTik via SNMP: CPU, temperatura, uptime, voltagem, memória."""
+    host = os.getenv("ND_MIKROTIK_HOST", "192.168.88.1")
+    community = os.getenv("ND_SNMP_COMMUNITY", "public")
+    try:
+        data = await _snmp_mikrotik_health(host, community)
+        return data
+    except Exception as e:
+        logger.error(f"Erro saúde MikroTik: {e}")
+        return {"error": str(e)}
+
+@app.get("/mikrotik/clients")
+async def get_mikrotik_clients():
+    """Dispositivos com lease DHCP no MikroTik."""
+    try:
+        loop = asyncio.get_event_loop()
+        leases = await loop.run_in_executor(None, _mtk_dhcp)
+        return leases if isinstance(leases, list) else []
+    except Exception as e:
+        logger.error(f"Erro clientes MikroTik: {e}")
+        return []
+
+@app.get("/mikrotik/wifi")
+async def get_mikrotik_wifi():
+    """Clientes WiFi conectados com sinal (RSSI) e qualidade (CCQ)."""
+    try:
+        loop = asyncio.get_event_loop()
+        clients = await loop.run_in_executor(None, _mtk_wifi)
+        return clients if isinstance(clients, list) else []
+    except Exception as e:
+        logger.error(f"Erro WiFi MikroTik: {e}")
+        return []
+
+# --- 5. TWIBI MESH ---
+
+@app.get("/twibi/mesh")
+async def get_twibi_mesh():
+    """Status dos 3 nós do mesh Twibi Force AX."""
+    try:
+        nodes = await _twibi_mesh()
+        return nodes
+    except Exception as e:
+        logger.error(f"Erro mesh Twibi: {e}")
+        return []
+
+# --- 6. TOPOLOGIA LIVE ---
+
+@app.get("/topology/live")
+async def get_topology_live():
+    """
+    Monta topologia completa: Internet → ISP → MikroTik → Twibis → Clientes WiFi.
+    Cruza dados do último scan (neighbors, devices, route, ssdp) com dados live.
+    """
+    try:
+        row = database.get_last_scan()
+        report = (row.get("raw_json", {}) if row else {})
+        if isinstance(report, dict) and "report" in report:
+            report = report["report"]
+
+        devices   = report.get("devices", [])
+        neighbors = report.get("mikrotik_neighbors", [])
+        route     = report.get("route", {})
+        ssdp      = report.get("ssdp", [])
+        mk_health = report.get("mikrotik_health", {})
+        mk_wan    = report.get("mikrotik_wan_status", [{}])
+        wan_if    = mk_wan[0] if mk_wan else {}
+
+        # ── WAN status: qual link está ativo e se há failover ────────────────
+        mk_ip = os.getenv("ND_MIKROTIK_HOST", "192.168.88.1")
+        wan_interfaces = {w.get("name",""): w for w in mk_wan}
+        def _wan_running(w): return w.get("running") in (True, "true")
+        vivo_wan        = wan_interfaces.get("wan-vivo", {})
+        nio_wan         = wan_interfaces.get("wan-nio",  {})
+        vivo_up         = _wan_running(vivo_wan)
+        nio_up          = _wan_running(nio_wan)
+        failover_active = nio_up and not vivo_up
+        # Detecta se Vivo saiu do modo bridge: IP privado na WAN = modem Vivo virou NAT
+        vivo_bridge_ok  = vivo_wan.get("bridge_mode")   # True=bridge, False=NAT, None=desconhecido
+        vivo_private_ip = vivo_wan.get("private_ip")
+        active_wan_name = "wan-nio" if failover_active else ("wan-vivo" if vivo_up else (list(wan_interfaces.keys())[0] if wan_interfaces else "?"))
+
+        # ── Detecta Double NAT ────────────────────────────────────────────
+        # Traceroute detecta via hops privados; mas NIO em DMZ "esconde" o NAT duplo.
+        # Se o link ativo for NIO → double NAT é sempre verdadeiro (o modem NIO faz NAT).
+        hops = route.get("hops", [])
+        private_hops = [h for h in hops if h.get("is_private") and h.get("ip") not in ("*", mk_ip)]
+        # Double NAT: failover NIO ativo, OU Vivo saiu do bridge, OU traceroute detectou
+        vivo_double_nat = vivo_up and vivo_private_ip is True
+        double_nat = failover_active or vivo_double_nat or len(private_hops) >= 2
+        isp_ip = next((h["ip"] for h in hops if not h.get("is_private") and h.get("ip") not in ("*", None)), "?")
+
+        # ── Mapa MAC → device (normaliza: remove zeros, compara base-16) ─
+        def mac_base(mac):
+            return mac.upper().replace("-", ":") if mac else ""
+
+        def mac_matches(mac_a, mac_b):
+            """Twibi LAN MAC = device MAC ± 1 no último octeto."""
+            try:
+                a = mac_base(mac_a).split(":")
+                b = mac_base(mac_b).split(":")
+                if a[:5] != b[:5]: return False
+                return abs(int(a[5], 16) - int(b[5], 16)) <= 1
+            except Exception:
+                return False
+
+        def find_device(mac):
+            for d in devices:
+                if mac_matches(d.get("mac",""), mac):
+                    return d
+            return None
+
+        # ── Portas WAN (não são APs) ──────────────────────────────────────
+        wan_port_names = {w.get("name", "") for w in mk_wan}
+
+        # ── Mapeia portas do MikroTik → Twibi (só LAN) ───────────────────
+        port_map = {}  # porta → {device, mac}
+        for nbr in neighbors:
+            nbr_mac  = nbr.get("mac-address", "")
+            iface    = nbr.get("interface", "")
+            port     = iface.split(",")[0]  # "ether3,bridge" → "ether3"
+            # Ignora vizinhos na porta WAN (modem ISP)
+            if port in wan_port_names:
+                continue
+            device   = find_device(nbr_mac)
+            port_map[port] = {
+                "port":     port,
+                "mac":      nbr_mac,
+                "device":   device,
+                "hostname": device.get("hostname", "-") if device else nbr_mac[-8:],
+                "ip":       device.get("ip") if device else None,
+            }
+
+        # ── Twibi IPs conhecidos para marcar nos devices ──────────────────
+        twibi_ips = {d["ip"] for d in devices if "Twibi" in d.get("hostname", "") or "twibi" in d.get("hostname","").lower()}
+
+        # ── Clientes WiFi = devices ativos que NÃO são infra ─────────────
+        infra_ips = {
+            "192.168.88.1", "192.168.88.250",
+            "192.168.88.111", "192.168.88.112",
+        } | twibi_ips
+
+        wifi_clients = [
+            d for d in devices
+            if d.get("ip") not in infra_ips
+            and d.get("status") in ("Ativo", "Invisível (DHCP Record)")
+        ]
+
+        # ── Monta resposta ────────────────────────────────────────────────
+        return {
+            "internet": {
+                "label": "Internet",
+                "type":  "internet",
+            },
+            "isp": {
+                "label":           "ISP / Modem",
+                "type":            "router",
+                "ip":              isp_ip,
+                "double_nat":      double_nat,
+                "vendor":          "NIO" if failover_active else "Vivo",
+                "failover_active":  failover_active,
+                "vivo_up":          vivo_up,
+                "nio_up":           nio_up,
+                "vivo_bridge_ok":   vivo_bridge_ok,
+                "vivo_double_nat":  vivo_double_nat,
+                "vivo_ip":          vivo_wan.get("ip"),
+            },
+            "mikrotik": {
+                "label":       "MikroTik",
+                "type":        "router",
+                "ip":          os.getenv("ND_MIKROTIK_HOST", "192.168.88.1"),
+                "wan_port":    active_wan_name,
+                "wan_up":      vivo_up or nio_up,
+                "cpu":         mk_health.get("cpu_usage"),
+                "temp":        mk_health.get("temperature"),
+                "uptime":      mk_health.get("uptime_str"),
+                "mem_free":    mk_health.get("mem_free"),
+            },
+            "ports": port_map,
+            "wifi_clients": wifi_clients,
+        }
+    except Exception as e:
+        logger.error(f"Erro topology/live: {e}")
+        return {"error": str(e)}
+
+# --- TOOLS: MÓDULOS DE TESTE DE REDE ---
+from fastapi.responses import StreamingResponse
+import json as _json
+
+TOOLS_REGISTRY = [
+    {
+        "id": "arp",
+        "name": "ARP Scanner",
+        "description": "Descobre dispositivos ativos na rede via ARP",
+        "icon": "radar",
+        "params": [
+            {"id": "subnet", "label": "Subnet", "type": "text", "default": "192.168.88.0/24"},
+            {"id": "iface",  "label": "Interface", "type": "text", "default": "enp2s0"},
+        ]
+    },
+    {
+        "id": "port",
+        "name": "Port Scanner",
+        "description": "Verifica portas abertas em um host",
+        "icon": "door-open",
+        "params": [
+            {"id": "target", "label": "Host / IP", "type": "text", "default": "192.168.88.1"},
+            {"id": "ports",  "label": "Portas", "type": "text", "default": "22,53,80,443,8728"},
+        ]
+    },
+    {
+        "id": "dns",
+        "name": "DNS Tester",
+        "description": "Testa resolução DNS e mede latência",
+        "icon": "globe",
+        "params": [
+            {"id": "domain", "label": "Domínio", "type": "text", "default": "google.com"},
+        ]
+    },
+    {
+        "id": "latency",
+        "name": "Latency Tester",
+        "description": "Mede latência e perda de pacotes via ping",
+        "icon": "activity",
+        "params": [
+            {"id": "host", "label": "Host / IP", "type": "text", "default": "8.8.8.8"},
+        ]
+    },
+    {
+        "id": "route",
+        "name": "Route Analyzer",
+        "description": "Traceroute e análise de roteamento",
+        "icon": "git-branch",
+        "params": [
+            {"id": "target", "label": "Destino", "type": "text", "default": "8.8.8.8"},
+        ]
+    },
+    {
+        "id": "snmp",
+        "name": "SNMP Scanner",
+        "description": "Consulta métricas SNMP de um dispositivo",
+        "icon": "cpu",
+        "params": [
+            {"id": "host",      "label": "Host / IP",  "type": "text", "default": "192.168.88.1"},
+            {"id": "community", "label": "Community",  "type": "text", "default": "public"},
+        ]
+    },
+    {
+        "id": "ssdp",
+        "name": "SSDP Discovery",
+        "description": "Descobre dispositivos UPnP/SSDP na rede",
+        "icon": "wifi",
+        "params": []
+    },
+    {
+        "id": "mdns",
+        "name": "mDNS Discovery",
+        "description": "Descobre serviços mDNS/Bonjour na rede",
+        "icon": "share-2",
+        "params": []
+    },
+]
+
+@app.get("/tools/modules")
+async def list_tools():
+    return TOOLS_REGISTRY
+
+class ToolRunRequest(BaseModel):
+    params: Dict[str, str] = Field(default_factory=dict)
+
+@app.post("/tools/run/{tool_id}")
+async def run_tool(tool_id: str, req: ToolRunRequest):
+    """Executa um módulo de teste e retorna resultado como SSE stream."""
+    async def event_stream():
+        def emit(type_: str, msg: str, data: Any = None):
+            payload = {"type": type_, "message": msg}
+            if data is not None:
+                payload["data"] = data
+            return f"data: {_json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+        loop = asyncio.get_event_loop()
+        p = req.params
+
+        try:
+            if tool_id == "arp":
+                yield emit("info", f"Iniciando ARP scan em {p.get('subnet', '192.168.88.0/24')}...")
+                from scanner.arp_scanner import ARPScanner, ARPScannerError
+                def _run():
+                    s = ARPScanner(subnet=p.get("subnet","192.168.88.0/24"), iface=p.get("iface","enp2s0"))
+                    return [d.to_dict() for d in s.scan()]
+                devices = await loop.run_in_executor(None, _run)
+                yield emit("info", f"Encontrados {len(devices)} dispositivos:")
+                for d in devices:
+                    yield emit("result", f"  {d['ip']:<18} {d['mac']:<20} {d.get('vendor','-')}", d)
+                yield emit("success", f"ARP scan concluído — {len(devices)} hosts ativos.")
+
+            elif tool_id == "port":
+                target = p.get("target", "192.168.88.1")
+                ports  = p.get("ports", "22,53,80,443")
+                yield emit("info", f"Escaneando portas {ports} em {target}...")
+                from scanner.port_scanner import PortScanner
+                def _run():
+                    return PortScanner().scan(target, ports)
+                result = await loop.run_in_executor(None, _run)
+                open_ports = [pt for pt in result.get("ports", []) if pt.get("state") == "open"]
+                yield emit("info", f"Portas abertas ({len(open_ports)}):")
+                for pt in result.get("ports", []):
+                    icon = "✓" if pt.get("state") == "open" else "✗"
+                    yield emit("result", f"  {icon} {pt['port']:<6} {pt.get('name','-'):<15} {pt['state']}", pt)
+                yield emit("success", f"Port scan concluído — {len(open_ports)} portas abertas.")
+
+            elif tool_id == "dns":
+                domain = p.get("domain", "google.com")
+                yield emit("info", f"Testando resolução DNS para {domain}...")
+                from scanner.dns_tester import DNSTester
+                def _run():
+                    return DNSTester().test(domain)
+                result = await loop.run_in_executor(None, _run)
+                if result.get("resolved"):
+                    addrs = ", ".join(result.get("addresses", []))
+                    yield emit("result", f"  Resolvido: {addrs}", result)
+                    yield emit("result", f"  Latência: {result.get('elapsed_ms', '-')} ms")
+                    yield emit("success", "DNS resolvido com sucesso.")
+                else:
+                    yield emit("error", f"Falha na resolução: {result.get('error', 'desconhecido')}")
+
+            elif tool_id == "latency":
+                host = p.get("host", "8.8.8.8")
+                yield emit("info", f"Testando latência para {host}...")
+                from scanner.latency_tester import LatencyTester
+                def _run():
+                    return LatencyTester().test(host)
+                result = await loop.run_in_executor(None, _run)
+                avg = result.get('avg_ms') or result.get('avg_latency_ms', '-')
+                loss = result.get('packet_loss_percent', result.get('loss', '-'))
+                yield emit("result", f"  Latência média: {avg} ms", result)
+                yield emit("result", f"  Jitter: {result.get('jitter_ms', '-')} ms")
+                yield emit("result", f"  Perda de pacotes: {loss}%")
+                if result.get("reachable") or result.get("success"):
+                    yield emit("success", "Teste de latência concluído.")
+                else:
+                    yield emit("error", f"Host inacessível: {result.get('error','')}")
+
+            elif tool_id == "route":
+                target = p.get("target", "8.8.8.8")
+                yield emit("info", f"Executando traceroute para {target}...")
+                from scanner.route_analyzer import RouteAnalyzer
+                def _run():
+                    return RouteAnalyzer(max_hops=20).analyze(target)
+                result = await loop.run_in_executor(None, _run)
+                hops = result.get("hops", [])
+                for hop in hops:
+                    ip  = hop.get("ip","*")
+                    lat = f"{hop.get('latency',0):.1f} ms" if hop.get("latency") else "*"
+                    flag = " ⚠ NAT" if hop.get("is_private") else ""
+                    yield emit("result", f"  {hop.get('hop_num','?'):>2}  {ip:<18} {lat}{flag}", hop)
+                nat = result.get("nat_multiple_suspected", False)
+                yield emit("success", f"Traceroute concluído — {len(hops)} saltos. NAT duplo: {'sim' if nat else 'não'}.")
+
+            elif tool_id == "snmp":
+                host      = p.get("host", "192.168.88.1")
+                community = p.get("community", "public")
+                yield emit("info", f"Consultando SNMP em {host} (community={community})...")
+                from collectors.snmp_metrics import get_mikrotik_health
+                result = await get_mikrotik_health(host, community=community)
+                if result.get("snmp_error"):
+                    yield emit("error", f"SNMP indisponível: {result['snmp_error']}")
+                else:
+                    yield emit("result", f"  CPU:         {result.get('cpu_usage','?')}%", result)
+                    yield emit("result", f"  Temperatura: {result.get('temperature','?')} °C")
+                    yield emit("result", f"  Uptime:      {result.get('uptime_str','?')}")
+                    yield emit("result", f"  Mem livre:   {result.get('mem_free','?')} KB")
+                    yield emit("result", f"  Voltagem:    {result.get('voltage','?')} V")
+                    yield emit("success", "Consulta SNMP concluída.")
+
+            elif tool_id == "ssdp":
+                yield emit("info", "Descobrindo dispositivos SSDP/UPnP na rede...")
+                from scanner.ssdp_scanner import SSDPScanner
+                def _run():
+                    return SSDPScanner().discover()
+                devices = await loop.run_in_executor(None, _run)
+                yield emit("info", f"Encontrados {len(devices)} dispositivos:")
+                for d in devices:
+                    yield emit("result", f"  {d.get('ip','?'):<18} {d.get('server','-')}", d)
+                yield emit("success", f"SSDP discovery concluída — {len(devices)} dispositivos.")
+
+            elif tool_id == "mdns":
+                yield emit("info", "Descobrindo serviços mDNS/Bonjour na rede...")
+                from scanner.mdns_scanner import MDNSScanner
+                def _run():
+                    return MDNSScanner().discover()
+                services = await loop.run_in_executor(None, _run)
+                yield emit("info", f"Encontrados {len(services)} serviços:")
+                for s in services:
+                    yield emit("result", f"  {s.get('name','-'):<30} {s.get('type','-')}", s)
+                yield emit("success", f"mDNS discovery concluída — {len(services)} serviços.")
+
+            else:
+                yield emit("error", f"Módulo '{tool_id}' não encontrado.")
+
+        except Exception as e:
+            logger.error(f"Tool {tool_id} error: {e}")
+            yield emit("error", f"Erro: {e}")
+
+        yield emit("done", "")
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+# --- RELATÓRIO PDF ---
+from fastapi.responses import Response as _Response
+
+@app.get("/report/export")
+async def export_pdf_report():
+    """Gera e retorna o relatório PDF do último scan."""
+    row = database.get_last_scan()
+    if not row:
+        raise HTTPException(status_code=404, detail="Nenhum scan disponível")
+
+    raw = row.get("raw_json") or {}
+    # raw_json é salvo como {"generated_at": ..., "report": payload}
+    scan_data = raw.get("report", raw) if isinstance(raw, dict) else raw
+
+    # Injeta ai_diagnosis da coluna separada se não estiver no payload
+    if not scan_data.get("ai_diagnosis"):
+        ai_raw = row.get("ai_diagnosis") or row.get("ai_analysis") or ""
+        if ai_raw:
+            try:
+                ai_parsed = json.loads(ai_raw) if isinstance(ai_raw, str) else ai_raw
+                # Desempacota nested parsed
+                while isinstance(ai_parsed, dict) and list(ai_parsed.keys()) == ["parsed"]:
+                    ai_parsed = ai_parsed["parsed"]
+                scan_data["ai_diagnosis"] = ai_parsed
+            except Exception:
+                pass
+
+    loop = asyncio.get_running_loop()
+    from services.report_generator_pdf import generate_pdf
+    pdf_bytes = await loop.run_in_executor(None, generate_pdf, scan_data)
+
+    filename = f"fox-noc-report-{datetime.now().strftime('%Y%m%d-%H%M')}.pdf"
+    return _Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+# --- 7. MONTAGEM DE ARQUIVOS ---
+
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/noc")
+# As rotas de API foram definidas acima. Agora montamos os estáticos por último.
+# Assim, o FastAPI só tenta ler um arquivo se a rota não existir no código.
+
+# Caminhos relativos ao arquivo — funciona local e em Docker
+_BASE = os.path.dirname(os.path.abspath(__file__))
+app.mount("/noc", StaticFiles(directory=os.path.join(_BASE, "app", "noc"), html=True), name="noc")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Importante: O nome aqui deve ser o nome do arquivo (api.py -> api:app)
+    uvicorn.run("api:app", host="0.0.0.0", port=80, reload=True)

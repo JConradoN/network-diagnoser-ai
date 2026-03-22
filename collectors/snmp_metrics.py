@@ -53,9 +53,27 @@ async def get_mikrotik_health(host, community='public', port=161):
                 results[oid] = f"Exception: {exc}"
     except Exception as exc:
         return {
-            'cpu_usage': f"Timeout ou erro de transporte: {exc}",
-            'uptime': f"Timeout ou erro de transporte: {exc}",
-            'mem_free': f"Timeout ou erro de transporte: {exc}"
+            'snmp_error': f"Timeout ou erro de transporte: {exc}",
+            'cpu_usage': None,
+            'uptime': None,
+            'uptime_str': None,
+            'mem_free': None,
+            'temperature': None,
+            'voltage': None,
+        }
+
+    # Verifica se todos os OIDs falharam (SNMP indisponível)
+    all_errors = all(isinstance(v, str) for v in results.values())
+    if all_errors:
+        first_err = next(iter(results.values()), "SNMP indisponível")
+        return {
+            'snmp_error': str(first_err),
+            'cpu_usage': None,
+            'uptime': None,
+            'uptime_str': None,
+            'mem_free': None,
+            'temperature': None,
+            'voltage': None,
         }
 
     # Ajuste do uptime: timeticks (centésimos de segundo) para segundos e string formatada
@@ -65,8 +83,7 @@ async def get_mikrotik_health(host, community='public', port=161):
     if isinstance(raw_uptime, int):
         uptime_seconds = raw_uptime // 100
         uptime_str = format_uptime(uptime_seconds)
-    else:
-        uptime_seconds = raw_uptime
+    elif raw_uptime is not None and not isinstance(raw_uptime, str):
         uptime_str = str(raw_uptime)
 
     # Temperatura e voltagem
@@ -77,23 +94,28 @@ async def get_mikrotik_health(host, community='public', port=161):
     try:
         if isinstance(temp_raw, int):
             temperature = temp_raw / 10
-        elif temp_raw is not None:
+        elif temp_raw is not None and not isinstance(temp_raw, str):
             temperature = float(temp_raw) / 10
     except Exception:
-        temperature = temp_raw
+        pass
     try:
         if isinstance(voltage_raw, int):
             voltage = voltage_raw / 10
-        elif voltage_raw is not None:
+        elif voltage_raw is not None and not isinstance(voltage_raw, str):
             voltage = float(voltage_raw) / 10
     except Exception:
-        voltage = voltage_raw
+        pass
+
+    cpu_raw = results.get(OID_CPU)
+    cpu_val = cpu_raw if isinstance(cpu_raw, int) else None
+    mem_raw = results.get(OID_MEM_FREE)
+    mem_val = mem_raw if isinstance(mem_raw, int) else None
 
     return {
-        'cpu_usage': results.get(OID_CPU),
+        'cpu_usage': cpu_val,
         'uptime': uptime_seconds,
         'uptime_str': uptime_str,
-        'mem_free': results.get(OID_MEM_FREE),
+        'mem_free': mem_val,
         'temperature': temperature,
-        'voltage': voltage
+        'voltage': voltage,
     }

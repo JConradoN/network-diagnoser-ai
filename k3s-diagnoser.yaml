@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-diagnoser
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: diagnoser
+  template:
+    metadata:
+      labels:
+        app: diagnoser
+    spec:
+      hostNetwork: true  # Permite ver a rede física 192.168.x.x
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: diagnoser
+        image: fox-noc:latest 
+        imagePullPolicy: Never 
+        workingDir: /app
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          capabilities:
+            add: ["NET_RAW", "NET_ADMIN"]
+        ports:
+        - containerPort: 80 # Ajustado para a porta unificada do Backend/Frontend
+        env:
+          - name: GEMINI_API_KEY
+            value: "AIzaSyAIwZ8gfGLu3pFfQIZ-9_Xh85seRoQ9U6s"
+          - name: PYTHONDONTWRITEBYTECODE
+            value: "1"
+          - name: PYTHONUNBUFFERED # Essencial para ver logs sem atraso
+            value: "1"
+        volumeMounts:
+        - name: project-root
+          mountPath: /app
+        # Garante que o container execute o entrypoint que está no seu notebook
+        command: ["/bin/bash", "/app/entrypoint.sh"]
+      volumes:
+      - name: project-root
+        hostPath:
+          path: /opt/network-scanner
+          type: Directory

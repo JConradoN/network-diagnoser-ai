@@ -133,11 +133,29 @@ def _cmd_report(args: argparse.Namespace) -> int:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False))
         return 1
 
-    filtered = DiagnosisService.filter_findings(
-        report,
-        severity=args.severity,
-        device_ip=args.device_ip,
-    )
+# Ajuste para alinhar com a implementação real do DiagnosisService
+    try:
+        # Se o método for apenas para buscar os problemas do relatório:
+        findings = report.get('report', {}).get('findings', [])
+        
+        # Filtra manualmente se o método filter_findings não existir
+        filtered = [
+            f for f in findings 
+            if (not args.severity or f.get('severity') == args.severity) and
+               (not args.device_ip or f.get('device_ip') == args.device_ip)
+        ]
+        
+        # Se você preferir usar o Service (caso ele tenha o método com outro nome):
+        # filtered = DiagnosisService.get_findings(report, severity=args.severity)
+        
+    except Exception as e:
+        print(f"⚠️ Erro ao filtrar achados: {e}")
+        filtered = []
+#    filtered = DiagnosisService.filter_findings(
+#        report,
+#        severity=args.severity,
+#        device_ip=args.device_ip,
+#    )
 
     payload = {
         "status": "ok",

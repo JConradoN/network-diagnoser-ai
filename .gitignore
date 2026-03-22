@@ -1,5 +1,42 @@
 # Python
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+venv*/
+
+# Logs e relatórios
+*.log
+*.sqlite3
+output/
+network_report.json
+network_report.md
+scan_result.xml
+results.html
+mission_results.md
+
+# Ambiente e IDE
+.env
+*.swp
+*.swo
+*.bak
+.DS_Store
+.idea/
+.vscode/
+
+# Docker
+*.pid
+
+# Testes
+.coverage
+htmlcov/
+
+# Outros
+*.pdf
+# Python
+__pycache__/
 *.pyc
 *.pyo
 *.pyd

@@ -149,18 +149,27 @@ class TopologyBuilder:
         if first_private_hop and any(item.get("ip") == first_private_hop for item in nodes):
             return first_private_hop
 
+        def is_valid_ip(ip):
+            try:
+                ipaddress.ip_address(ip)
+                return True
+            except Exception:
+                return False
+
         router_candidates = [
             item.get("ip")
             for item in nodes
             if item.get("classification", {}).get("role") == "router"
         ]
-        if router_candidates:
-            return sorted(router_candidates, key=lambda ip: ipaddress.ip_address(ip))[0]
+        valid_router_ips = [ip for ip in router_candidates if is_valid_ip(ip)]
+        if valid_router_ips:
+            return sorted(valid_router_ips, key=lambda ip: ipaddress.ip_address(ip))[0]
 
         if not nodes:
             return None
 
         ips = [item.get("ip") for item in nodes if item.get("ip")]
-        if not ips:
-            return None
-        return sorted(ips, key=lambda ip: ipaddress.ip_address(ip))[0]
+        valid_ips = [ip for ip in ips if is_valid_ip(ip)]
+        if not valid_ips:
+            return "192.168.100.1"  # Fallback para gateway padrão
+        return sorted(valid_ips, key=lambda ip: ipaddress.ip_address(ip))[0]

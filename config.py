@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)  # Explicitamente definido como False para evitar erros
 class AppConfig:
     """Runtime settings loaded from environment variables."""
 
@@ -29,14 +29,12 @@ class AppConfig:
     port_scan_ports: str = "22,53,67,68,80,443"
     expected_active_hosts: int | None = None
     gemini_api_key: str | None = None
-    gemini_model: str = os.getenv("ND_GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 def load_config() -> AppConfig:
     """Load application configuration from environment variables."""
-    subnet = os.getenv("ND_SUBNET") or None
-
     return AppConfig(
-        subnet=subnet,
+        subnet=os.getenv("ND_SUBNET") or None,
         interface=os.getenv("ND_INTERFACE") or None,
         snmp_community=os.getenv("ND_SNMP_COMMUNITY", "public"),
         snmp_timeout=int(os.getenv("ND_SNMP_TIMEOUT", "2")),
@@ -60,5 +58,5 @@ def load_config() -> AppConfig:
             else None
         ),
         gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
     )

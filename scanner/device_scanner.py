@@ -34,7 +34,6 @@ class DeviceScanner:
             devices.append(device)
         return devices
 
-    # fallback para vendor caso getmac não funcione
     def get_vendor(self, mac):
         try:
             from getmac.vendor import EUI, oui
@@ -43,7 +42,6 @@ class DeviceScanner:
             return self.oui_lookup(mac) or "Desconhecido"
 
     def oui_lookup(self, mac):
-        # Pequena lista interna de OUI
         oui_map = {
             "f4:1e:57": "MikroTik",
             "38:9d:92": "Seiko Epson Corporation",
@@ -54,36 +52,12 @@ class DeviceScanner:
 
     def get_hostname(self, ip):
         try:
-            # Placeholder para mDNS
-            mdns_name = self.mdns_name(ip)
-            if mdns_name:
-                return mdns_name
-            return socket.getfqdn(ip)
-        except Exception:
-            return None
-
-    def mdns_name(self, ip):
-        # Placeholder: implementar consulta mDNS se necessário
-        return None
-
-    def get_vendor(self, mac):
-        try:
-            from getmac.vendor import EUI, oui
-            return oui.get(mac) or "Desconhecido"
-        except Exception:
-            return "Desconhecido"
-
-    def get_hostname(self, ip):
-        try:
-            # Tentativa via NetBIOS (porta 137)
             nb_name = self.netbios_name(ip)
             if nb_name:
                 return nb_name
-            # Tentativa via mDNS
             mdns_name = self.mdns_name(ip)
             if mdns_name:
                 return mdns_name
-            # Fallback: DNS reverso
             return socket.getfqdn(ip)
         except Exception:
             return None

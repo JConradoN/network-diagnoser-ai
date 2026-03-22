@@ -28,7 +28,8 @@ pip install --upgrade -r requirements.txt
 
 ## 7. Como salvar e ler relatórios?
 - Use as opções `--json-output` e `--md-output` na CLI
-- Use os endpoints `/scan/save` e `/report/latest` na API
+- Os relatórios também são salvos automaticamente no banco SQLite (network_scanner.db) e podem ser exportados em PDF
+- Use os endpoints `/scan/save`, `/report/latest`, `/network/report/pdf`, `/dashboard/stats`, `/network/topology`, `/network/performance` na API para consultar, filtrar, exportar e visualizar dados avançados do relatório
 
 ## 8. Como rodar testes?
 ```bash

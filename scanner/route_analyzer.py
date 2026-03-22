@@ -52,15 +52,29 @@ class RouteAnalyzer:
 
     @staticmethod
     def _extract_hops(output: str) -> list[dict]:
-        ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", output)
         hops: list[dict] = []
-        for ip in ips:
-            hops.append(
-                {
-                    "ip": ip,
-                    "is_private": RouteAnalyzer._is_private_ip(ip),
-                }
-            )
+        lines = output.splitlines()
+        hop_regex = re.compile(r"^\s*\d+\s+(.*)")
+        ip_regex = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+        latency_regex = re.compile(r"(\d+\.\d+) ms")
+        for line in lines:
+            m = hop_regex.match(line)
+            if not m:
+                continue
+            hop_data = m.group(1)
+            ips = ip_regex.findall(hop_data)
+            latencies = latency_regex.findall(hop_data)
+            if not ips:
+                # Saltos com * * *
+                hops.append({"ip": "*", "latency": None, "is_private": False})
+            else:
+                for idx, ip in enumerate(ips):
+                    latency = float(latencies[idx]) if idx < len(latencies) else None
+                    hops.append({
+                        "ip": ip,
+                        "latency": latency,
+                        "is_private": RouteAnalyzer._is_private_ip(ip),
+                    })
         return hops
 
     @staticmethod

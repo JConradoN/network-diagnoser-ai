@@ -53,7 +53,7 @@ def _base_config(gemini_api_key: str | None = None) -> AppConfig:
         port_scan_ports="53,67,80",
         expected_active_hosts=None,
         gemini_api_key=gemini_api_key,
-        gemini_model="gemini-1.5-flash",
+        gemini_model="gemini-latest-flash",
     )
 
 

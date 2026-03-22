@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FOX NOC | Vilachaves</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'JetBrains Mono', monospace; background: #020617; color: #94a3b8; margin: 0; }
+        .h-font { font-family: 'Orbitron', sans-serif; }
+        .glass { background: rgba(15,23,42,0.85); border: 1px solid rgba(16,185,129,0.1); }
+        .glass-warn { background: rgba(15,23,42,0.85); border: 1px solid rgba(245,158,11,0.2); }
+        .glass-error { background: rgba(15,23,42,0.85); border: 1px solid rgba(239,68,68,0.2); }
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.3} }
+        .pulse { animation: pulse-dot 2s infinite; }
+        ::-webkit-scrollbar { width: 3px; height: 3px; }
+        ::-webkit-scrollbar-thumb { background: #10b981; border-radius: 2px; }
+        .signal-fill { transition: width .6s ease; }
+        .fade-in { animation: fadeIn .4s ease; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+        tr:hover td { background: rgba(16,185,129,0.03); }
+    </style>
+</head>
+<body class="p-3 md:p-4">
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
+<header class="glass rounded-2xl flex justify-between items-center px-5 py-3 mb-4">
+    <div class="flex items-center gap-3">
+        <div class="w-8 h-8 border-2 border-emerald-500 rounded-xl flex items-center justify-center bg-emerald-500/10">
+            <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+        </div>
+        <div>
+            <h1 class="h-font text-base font-bold text-white leading-none">FOX <span class="text-emerald-500">NOC</span></h1>
+            <p class="text-[9px] uppercase tracking-[.3em] text-emerald-900 font-bold mt-0.5">Vilachaves Network</p>
+        </div>
+    </div>
+    <div class="flex items-center gap-4">
+        <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/5">
+            <div id="status-dot" class="w-2 h-2 rounded-full bg-emerald-500 pulse"></div>
+            <span id="status-text" class="text-[9px] font-bold uppercase text-emerald-400 tracking-widest">NOMINAL</span>
+        </div>
+        <span id="clock" class="text-xs text-slate-700 font-bold tabular-nums hidden md:block">--:--:--</span>
+        <button onclick="window.open('/report/export')" title="Exportar relatório em PDF"
+            class="px-3 py-2 bg-cyan-700/30 hover:bg-cyan-600/40 active:scale-95 text-cyan-400 border border-cyan-500/30 font-black text-[9px] uppercase tracking-widest rounded-lg transition-all">
+            ↓ PDF
+        </button>
+        <button id="btn-scan" onclick="openModal()"
+            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-black font-black text-[9px] uppercase tracking-widest rounded-lg transition-all">
+            ENGAGE
+        </button>
+    </div>
+</header>
+
+<!-- ═══ NAVEGAÇÃO ═══════════════════════════════════════════════════════════ -->
+<nav class="glass rounded-2xl flex items-center gap-1 px-2 py-1.5 mb-4">
+    <button onclick="showSection('painel')" id="tab-painel"
+        class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all bg-emerald-600/20 text-emerald-400 border border-emerald-500/30">
+        PAINEL
+    </button>
+    <button onclick="showSection('tools')" id="tab-tools"
+        class="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all text-slate-600 hover:text-slate-400 border border-transparent hover:border-slate-700">
+        FERRAMENTAS
+    </button>
+</nav>
+
+<!-- ═══ SEÇÃO: PAINEL ═══════════════════════════════════════════════════════ -->
+<div id="section-painel">
+
+<!-- ═══ ALERTAS ═══════════════════════════════════════════════════════════ -->
+<div id="alerts-wrap" class="mb-4">
+    <button onclick="toggleAlerts()" id="alerts-btn"
+        class="w-full flex justify-between items-center px-4 py-2.5 glass rounded-2xl text-left transition-colors">
+        <div class="flex items-center gap-2.5">
+            <div id="alerts-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+            <span id="alerts-title" class="text-[8px] font-bold uppercase tracking-widest text-emerald-700">
+                Sistema Nominal — Nenhum Alerta
+            </span>
+            <span id="alerts-summary" class="text-[8px] text-slate-700"></span>
+        </div>
+        <span id="alerts-chevron" class="text-[9px] text-slate-700 hidden">▼</span>
+    </button>
+    <div id="alerts-panel" class="hidden grid grid-cols-1 md:grid-cols-2 gap-2 mt-2"></div>
+</div>
+
+<!-- ═══ KPI ROW ═══════════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+
+    <!-- Latência WAN -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Latência WAN</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-lat" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-emerald-500 text-[9px]">ms</span>
+        </div>
+        <p class="text-[8px] text-slate-700 mt-1">jitter <span id="kpi-jitter" class="text-slate-500">--</span> ms</p>
+    </div>
+
+    <!-- Perda de Pacotes -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Perda Pacotes</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-loss" class="text-2xl font-bold text-white tabular-nums">0</span>
+            <span class="text-blue-500 text-[9px]">%</span>
+        </div>
+        <div class="mt-2 h-1 bg-slate-800 rounded overflow-hidden">
+            <div id="loss-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+        </div>
+    </div>
+
+    <!-- CPU MikroTik -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">CPU MikroTik</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-cpu" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-emerald-500 text-[9px]">%</span>
+        </div>
+        <div class="mt-2 h-1 bg-slate-800 rounded overflow-hidden">
+            <div id="cpu-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+        </div>
+    </div>
+
+    <!-- Temp MikroTik -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Temp MikroTik</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-temp" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-blue-400 text-[9px]">°C</span>
+        </div>
+        <p class="text-[8px] text-slate-700 mt-1"><span id="kpi-volt" class="text-slate-500">--</span> V</p>
+    </div>
+
+    <!-- Uptime MikroTik -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Uptime Router</p>
+        <p id="kpi-uptime" class="text-xs font-bold text-white leading-snug mt-1">--</p>
+    </div>
+
+    <!-- Dispositivos Ativos -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Ativos</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-devices" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-emerald-500 text-[9px]">devs</span>
+        </div>
+        <p id="kpi-scan-age" class="text-[8px] text-slate-700 mt-1">último scan: --</p>
+    </div>
+
+</div>
+
+<!-- ═══ KPI ROW 2 ══════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+
+    <!-- DNS Resolução -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">DNS Resolução</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-dns" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-blue-400 text-[9px]">ms</span>
+        </div>
+        <p class="text-[8px] text-slate-700 mt-1"><span id="kpi-dns-domain" class="text-slate-600">--</span></p>
+    </div>
+
+    <!-- RAM MikroTik -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">RAM Livre</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-ram" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-emerald-500 text-[9px]">MB</span>
+        </div>
+        <div class="mt-2 h-1 bg-slate-800 rounded overflow-hidden">
+            <div id="ram-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+        </div>
+    </div>
+
+    <!-- Saltos WAN -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Saltos WAN</p>
+        <div class="flex items-baseline gap-1">
+            <span id="kpi-hops" class="text-2xl font-bold text-white tabular-nums">--</span>
+            <span class="text-slate-500 text-[9px]">hops</span>
+        </div>
+        <p class="text-[8px] text-slate-700 mt-1">→ <span id="kpi-hops-target" class="text-slate-600">8.8.8.8</span></p>
+    </div>
+
+    <!-- Rota WAN / NAT -->
+    <div class="glass rounded-xl p-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Rota WAN</p>
+        <div id="kpi-nat-ok" class="flex items-center gap-1.5 mt-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span class="text-[10px] font-bold text-emerald-400">NAT Simples</span>
+        </div>
+        <div id="kpi-nat-warn" class="hidden flex items-center gap-1.5 mt-2">
+            <span class="w-2 h-2 rounded-full bg-yellow-500 pulse"></span>
+            <span class="text-[10px] font-bold text-yellow-400">Double NAT</span>
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══ MIDDLE ROW: Tráfego + WiFi ═══════════════════════════════════════ -->
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
+
+    <!-- Tráfego (3/5) -->
+    <div class="lg:col-span-3 glass rounded-2xl p-4">
+        <div class="flex justify-between items-start mb-3">
+            <div>
+                <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Vazão de Dados</p>
+                <div class="flex gap-4 mt-1">
+                    <span class="text-xs font-bold text-emerald-400">▼ <span id="dl-now">0.00</span> Mbps</span>
+                    <span class="text-xs font-bold text-blue-400">▲ <span id="ul-now">0.00</span> Mbps</span>
+                </div>
+            </div>
+            <div class="flex gap-3 text-[8px] font-bold text-slate-600">
+                <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-emerald-500 inline-block"></span>Download</span>
+                <span class="flex items-center gap-1"><span class="w-2 h-0.5 bg-blue-500 inline-block"></span>Upload</span>
+            </div>
+        </div>
+        <div class="h-40"><canvas id="trafficChart"></canvas></div>
+    </div>
+
+    <!-- WiFi Vilachaves (2/5) -->
+    <div class="lg:col-span-2 glass rounded-2xl p-4">
+        <div class="flex justify-between items-center mb-3">
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">WiFi Vilachaves</p>
+            <span id="wifi-count" class="text-[8px] font-bold text-emerald-700">--</span>
+        </div>
+        <div id="wifi-list" class="space-y-3 overflow-y-auto max-h-44">
+            <p class="text-[10px] text-slate-700 italic">Aguardando dados...</p>
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══ TRACEROUTE ════════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl p-4 mb-4">
+    <div class="flex justify-between items-start mb-3">
+        <div>
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Latência de Rota — Traceroute</p>
+            <p id="tr-subtitle" class="text-[9px] text-slate-700 mt-0.5">aguardando...</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="tr-bottleneck-badge" class="hidden text-[8px] font-bold text-amber-400 border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 rounded-full">⚠ Gargalo detectado</span>
+            <button onclick="refreshTraceroute()" class="text-[8px] text-slate-600 hover:text-emerald-400 border border-slate-800 hover:border-emerald-800 px-2 py-1 rounded-lg transition-colors">↺ Atualizar</button>
+        </div>
+    </div>
+    <div class="h-44">
+        <canvas id="tracerouteChart"></canvas>
+    </div>
+    <!-- Linha de pills por hop -->
+    <div id="tr-hops-row" class="relative mt-2" style="height:62px"></div>
+    <!-- Legenda -->
+    <div class="flex gap-4 mt-3 text-[8px] text-slate-700">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-emerald-500/60 inline-block"></span>Rede Interna</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-blue-500/60 inline-block"></span>ISP / Internet</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-amber-500/60 inline-block"></span>Gargalo (Δ &gt; 30ms)</span>
+    </div>
+</div>
+
+<!-- ═══ TOPOLOGIA ═════════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl p-4 mb-4">
+    <div class="flex justify-between items-center mb-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Topologia da Rede</p>
+        <span id="topo-nat-badge" class="hidden text-[8px] font-bold text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded-full">⚠ Double NAT</span>
+    </div>
+    <div id="topo-svg-wrap" class="w-full overflow-x-auto">
+        <svg id="topo-svg" class="w-full" style="min-height:320px"></svg>
+    </div>
+</div>
+
+<!-- ═══ MESH TWIBI ══════════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl p-4 mb-4">
+    <div class="flex justify-between items-center mb-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Mesh Twibi Force AX</p>
+        <span id="mesh-fw" class="text-[8px] text-slate-700">--</span>
+    </div>
+    <div id="mesh-nodes" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <p class="text-[10px] text-slate-700 italic col-span-3">Aguardando dados...</p>
+    </div>
+</div>
+
+<!-- ═══ DEVICES TABLE ═════════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl p-4 mb-4">
+    <div class="flex justify-between items-center mb-3">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Dispositivos na Rede</p>
+        <span id="devices-scan-time" class="text-[8px] text-slate-700">--</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-[10px]">
+            <thead>
+                <tr class="text-[8px] text-slate-700 uppercase tracking-widest border-b border-slate-800/60">
+                    <th class="text-left pb-2 pr-4 font-bold">IP</th>
+                    <th class="text-left pb-2 pr-4 font-bold">Hostname</th>
+                    <th class="text-left pb-2 pr-4 font-bold hidden md:table-cell">Fabricante</th>
+                    <th class="text-left pb-2 font-bold">Status</th>
+                </tr>
+            </thead>
+            <tbody id="devices-tbody">
+                <tr><td colspan="4" class="py-6 text-slate-700 italic text-center text-[10px]">
+                    Inicie um scan para ver os dispositivos
+                </td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══ GEMINI AI ══════════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl overflow-hidden mb-2">
+
+    <!-- Header colapsável -->
+    <button onclick="toggleAI()"
+        class="w-full flex justify-between items-center px-4 py-3 hover:bg-emerald-500/5 transition-all text-left">
+        <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse"></div>
+            <span class="text-[8px] font-bold text-emerald-600 uppercase tracking-widest">Diagnóstico Gemini AI</span>
+            <span id="ai-ts" class="text-[8px] text-slate-700 ml-2">--</span>
+            <span id="ai-problem-count" class="hidden text-[8px] font-bold text-red-400 border border-red-500/30 px-1.5 rounded-full"></span>
+        </div>
+        <span id="ai-chevron" class="text-slate-700 text-[10px]">▼</span>
+    </button>
+
+    <div id="ai-panel" class="hidden">
+
+        <!-- Diagnóstico detalhado -->
+        <div class="px-4 pb-3 border-b border-slate-800/40">
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-2">Análise</p>
+            <div id="ai-diagnostico" class="text-[12px] text-slate-300 leading-relaxed border-l-2 border-emerald-900/50 pl-3 max-h-48 overflow-y-auto">
+                Aguardando scan...
+            </div>
+        </div>
+
+        <!-- Problemas + Causas -->
+        <div id="ai-problemas-wrap" class="hidden px-4 py-3 border-b border-slate-800/40">
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-2">Problemas Encontrados</p>
+            <div id="ai-problemas" class="space-y-2"></div>
+        </div>
+
+        <!-- Ações -->
+        <div id="ai-acoes-wrap" class="hidden px-4 py-3">
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-2">Ações Recomendadas</p>
+            <div id="ai-acoes" class="space-y-2 max-h-80 overflow-y-auto pr-1"></div>
+        </div>
+
+    </div>
+</div>
+
+</div><!-- /section-painel -->
+
+<!-- ═══ SEÇÃO: FERRAMENTAS ═══════════════════════════════════════════════════ -->
+<div id="section-tools" class="hidden">
+
+    <div class="glass rounded-2xl p-4 mb-4">
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Ferramentas de Diagnóstico</p>
+                <p class="text-[10px] text-slate-700 mt-0.5">Execute módulos individuais sob demanda</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="window.open('/report/export')" title="Exportar relatório em PDF"
+                    class="px-3 py-1.5 bg-cyan-700/30 hover:bg-cyan-600/40 active:scale-95 text-cyan-400 border border-cyan-500/30 font-black text-[9px] uppercase tracking-widest rounded-lg transition-all">
+                    ↓ EXPORTAR PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- Grid de cards de ferramentas -->
+        <div id="tools-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+            <p class="text-[10px] text-slate-700 italic col-span-3">Carregando módulos...</p>
+        </div>
+    </div>
+
+    <!-- Terminal de saída -->
+    <div class="glass rounded-2xl p-4 mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center gap-2">
+                <div id="tools-spinner" class="hidden w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+                <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Saída do Terminal</p>
+                <span id="tools-running-label" class="hidden text-[8px] font-bold text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">executando...</span>
+            </div>
+            <button onclick="clearToolsTerminal()"
+                class="text-[8px] text-slate-600 hover:text-red-400 border border-slate-800 hover:border-red-800 px-2 py-1 rounded-lg transition-colors">
+                LIMPAR
+            </button>
+        </div>
+        <div id="tools-terminal"
+            style="background:#000;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;min-height:220px;max-height:480px;overflow-y:auto;padding:12px;border-radius:8px;border:1px solid rgba(16,185,129,0.1)">
+            <span style="color:#475569">$ aguardando execução de ferramenta...</span>
+        </div>
+    </div>
+
+</div><!-- /section-tools -->
+
+<!-- ═══ MODAL ENGAGE ═══════════════════════════════════════════════════════ -->
+<div id="modal-engage" class="fixed inset-0 z-50 hidden items-center justify-center p-4" style="background:rgba(2,6,23,0.85);backdrop-filter:blur(4px)">
+    <div class="glass rounded-2xl w-full max-w-md shadow-2xl fade-in">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800/60">
+            <div>
+                <h2 class="h-font text-sm font-bold text-white">ENGAGE <span class="text-emerald-500">MISSION</span></h2>
+                <p class="text-[9px] text-slate-600 mt-0.5 uppercase tracking-widest">Pre-flight configuration</p>
+            </div>
+            <button onclick="closeModal()" class="text-slate-700 hover:text-slate-400 text-lg leading-none">✕</button>
+        </div>
+
+        <div class="px-5 py-4 space-y-5">
+
+            <!-- Interface -->
+            <div>
+                <label class="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">Interface de Rede</label>
+                <select id="modal-iface"
+                    class="w-full bg-slate-900 border border-slate-700 text-emerald-400 font-bold text-xs rounded-lg px-3 py-2 outline-none focus:border-emerald-600 cursor-pointer">
+                </select>
+            </div>
+
+            <!-- Subnet -->
+            <div>
+                <label class="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">Subnet Alvo</label>
+                <input id="modal-subnet" type="text"
+                    class="w-full bg-slate-900 border border-slate-700 text-emerald-400 font-bold text-xs rounded-lg px-3 py-2 outline-none focus:border-emerald-600"
+                    placeholder="192.168.x.0/24">
+            </div>
+
+            <!-- Rede adicional (dual-network) -->
+            <div>
+                <label class="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5">Rede Adicional <span class="text-slate-700">(opcional)</span></label>
+                <div id="extra-net-wrap" class="space-y-2">
+                    <!-- gerado dinamicamente -->
+                </div>
+                <button onclick="addExtraNetwork()" type="button"
+                    class="mt-2 text-[9px] text-emerald-700 hover:text-emerald-400 border border-emerald-900 hover:border-emerald-700 px-2 py-1 rounded-lg transition-colors">
+                    + Adicionar rede
+                </button>
+            </div>
+
+            <!-- Módulos -->
+            <div>
+                <label class="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Módulos</label>
+                <div class="space-y-1">
+                    <!-- Obrigatórios -->
+                    <p class="text-[8px] text-slate-700 uppercase tracking-widest mt-1 mb-1">Obrigatórios</p>
+                    <label class="flex items-center gap-2 opacity-50 cursor-not-allowed">
+                        <input type="checkbox" checked disabled class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">ARP Scanner</span>
+                        <span class="text-[9px] text-emerald-700 ml-auto">sempre ativo</span>
+                    </label>
+                    <label class="flex items-center gap-2 opacity-50 cursor-not-allowed">
+                        <input type="checkbox" checked disabled class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">Latency Tester</span>
+                        <span class="text-[9px] text-emerald-700 ml-auto">sempre ativo</span>
+                    </label>
+                    <label class="flex items-center gap-2 opacity-50 cursor-not-allowed">
+                        <input type="checkbox" checked disabled class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">DNS Tester</span>
+                        <span class="text-[9px] text-emerald-700 ml-auto">sempre ativo</span>
+                    </label>
+                    <label class="flex items-center gap-2 opacity-50 cursor-not-allowed">
+                        <input type="checkbox" checked disabled class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">Problem Detector</span>
+                        <span class="text-[9px] text-emerald-700 ml-auto">sempre ativo</span>
+                    </label>
+                    <label class="flex items-center gap-2 opacity-50 cursor-not-allowed">
+                        <input type="checkbox" checked disabled class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">Gemini AI Analyzer</span>
+                        <span class="text-[9px] text-emerald-700 ml-auto">sempre ativo</span>
+                    </label>
+
+                    <!-- Opcionais -->
+                    <p class="text-[8px] text-slate-700 uppercase tracking-widest mt-3 mb-1">Opcionais</p>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="port" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">Port Scanner</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="snmp" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">SNMP Collector</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="mdns" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">mDNS Discovery</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="ssdp" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">SSDP Discovery</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="os" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">OS Detection</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="dhcp" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">DHCP Lease Reader</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-white">
+                        <input type="checkbox" name="mod" value="topology" class="accent-emerald-500">
+                        <span class="text-[11px] text-slate-400">Topology Builder</span>
+                    </label>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="px-5 py-4 border-t border-slate-800/60 flex gap-3">
+            <button onclick="closeModal()"
+                class="flex-1 py-2.5 border border-slate-700 text-slate-500 hover:text-slate-300 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all">
+                Cancelar
+            </button>
+            <button id="btn-launch" onclick="launchScan()"
+                class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-black font-black text-[10px] uppercase tracking-widest rounded-lg transition-all">
+                INICIAR SCAN
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SCRIPTS ═══════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+
+// ── Chart ─────────────────────────────────────────────────────────────────
+const trafficChart = new Chart(
+    document.getElementById('trafficChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: Array(30).fill(''),
+        datasets: [
+            { label: 'Download', borderColor: '#10b981', borderWidth: 1.5,
+              backgroundColor: 'rgba(16,185,129,0.06)', fill: true,
+              tension: 0.4, pointRadius: 0, data: Array(30).fill(0) },
+            { label: 'Upload', borderColor: '#3b82f6', borderWidth: 1.5,
+              backgroundColor: 'rgba(59,130,246,0.06)', fill: true,
+              tension: 0.4, pointRadius: 0, data: Array(30).fill(0) }
+        ]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { display: false },
+            y: { beginAtZero: true, min: 0,
+                 grid: { color: 'rgba(255,255,255,0.025)' },
+                 ticks: { color: '#334155', font: { size: 8, family: 'JetBrains Mono' },
+                          callback: v => v + ' M' } }
+        }
+    }
+});
+
+// ── Traceroute Chart ──────────────────────────────────────────────────────
+const trCtx = document.getElementById('tracerouteChart').getContext('2d');
+const tracerouteChart = new Chart(trCtx, {
+    type: 'bar',
+    data: { labels: [], datasets: [{
+        label: 'Latência (ms)',
+        data: [], backgroundColor: [], borderColor: [],
+        borderWidth: 1.5, borderRadius: 5,
+    }]},
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: {
+                title: ctx => `Salto #${ctx[0].label.replace('#','')}`,
+                label: ctx => {
+                    const h = ctx.chart.data._hopsMeta?.[ctx.dataIndex];
+                    return [
+                        `  ${ctx.parsed.y.toFixed(1)} ms`,
+                        h ? `  ${h.ip}` : '',
+                        h?.is_bottleneck ? '  ⚠ Gargalo (Δ ' + h.delta_ms + ' ms)' : '',
+                    ].filter(Boolean);
+                }
+            }}
+        },
+        scales: {
+            x: { grid: { color: '#1e293b' },
+                 ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 8 } }},
+            y: { grid: { color: '#1e293b' }, beginAtZero: true,
+                 ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 8 } },
+                 title: { display: true, text: 'ms', color: '#475569', font: { size: 8 } }}
+        }
+    }
+});
+
+async function updateTraceroute() {
+    const d = await api('/network/traceroute');
+    if (!d?.hops?.length) {
+        document.getElementById('tr-subtitle').textContent = d?.error ? 'Erro: ' + d.error : 'Sem dados';
+        return;
+    }
+    const hops = d.hops;
+
+    const colOf = h => h.is_bottleneck ? '#f59e0b' : h.is_private ? '#10b981' : '#3b82f6';
+
+    tracerouteChart.data.labels      = hops.map(h => `#${h.hop_num}`);
+    tracerouteChart.data.datasets[0].data            = hops.map(h => h.latency);
+    tracerouteChart.data.datasets[0].backgroundColor = hops.map(h => colOf(h) + '40');
+    tracerouteChart.data.datasets[0].borderColor     = hops.map(h => colOf(h));
+    tracerouteChart.data._hopsMeta  = hops;
+    tracerouteChart.update('none');
+
+    document.getElementById('tr-subtitle').textContent =
+        `→ ${d.target}  ·  ${hops.length} saltos  ·  último: ${hops.at(-1)?.latency?.toFixed(1)} ms`;
+
+    document.getElementById('kpi-hops').textContent    = hops.length;
+    document.getElementById('kpi-hops-target').textContent = d.target;
+
+    const badge = document.getElementById('tr-bottleneck-badge');
+    badge.classList.toggle('hidden', !d.has_bottleneck);
+
+    if (d.nat_suspected) {
+        document.getElementById('kpi-nat-ok').classList.add('hidden');
+        document.getElementById('kpi-nat-warn').classList.remove('hidden');
+        alertManager.set('double-nat', 'warning', 'Double NAT Detectado',
+            'Dois dispositivos NAT em série — pode prejudicar VoIP, jogos e acesso remoto');
+    } else {
+        alertManager.clear('double-nat');
+    }
+
+    // Traceroute funcionando — suprime alertas stale do relatório AI
+    alertManager.clearMatching(/traceroute.*ausente|traceroute.*não.*instal|ferramenta.*traceroute/i);
+
+    // Alerta de gargalo na rota
+    if (d.has_bottleneck) {
+        const bns = hops.filter(h => h.is_bottleneck)
+            .map(h => `#${h.hop_num} ${h.ip} (+${h.delta_ms} ms)`).join(', ');
+        alertManager.set('tr-bottleneck', 'warning', 'Gargalo na Rota WAN', `Salto${hops.filter(h=>h.is_bottleneck).length>1?'s':''}: ${bns}`);
+    } else {
+        alertManager.clear('tr-bottleneck');
+    }
+
+    // Pills posicionadas sob cada barra usando coordenadas do Chart.js
+    const row = document.getElementById('tr-hops-row');
+    row.innerHTML = hops.map((h, i) => {
+        const border = h.is_bottleneck ? 'border-amber-500/50 text-amber-400'
+                     : h.is_private    ? 'border-emerald-500/30 text-emerald-700'
+                                       : 'border-slate-700/60 text-slate-500';
+        const ip    = h.ip.length > 13 ? h.ip.slice(0, 12) + '…' : h.ip;
+        const delta = h.delta_ms > 0   ? `+${h.delta_ms}` : String(h.delta_ms);
+        return `<div class="tr-pill absolute border ${border} rounded-lg py-1 text-center overflow-hidden"
+                     style="top:0" data-i="${i}">
+            <p class="text-[7px] font-mono px-1 truncate leading-tight">${ip}</p>
+            <p class="text-[9px] font-bold tabular-nums leading-tight">${h.latency.toFixed(1)} ms</p>
+            <p class="text-[7px] text-slate-700 leading-tight">${delta}</p>
+        </div>`;
+    }).join('');
+
+    // Aguarda o chart terminar o render para ler posições reais das barras
+    requestAnimationFrame(() => {
+        const meta = tracerouteChart.getDatasetMeta(0);
+        if (!meta?.data?.length) return;
+
+        // Largura de cada barra (espaço entre centros menos 4px de gap visual)
+        const barSpacing = meta.data.length > 1
+            ? meta.data[1].x - meta.data[0].x
+            : tracerouteChart.chartArea.width / meta.data.length;
+        const pillW = Math.max(44, Math.floor(barSpacing) - 4);
+
+        row.style.height = '62px';
+
+        row.querySelectorAll('.tr-pill').forEach(pill => {
+            const i   = +pill.dataset.i;
+            const bar = meta.data[i];
+            if (!bar) return;
+            pill.style.width = pillW + 'px';
+            pill.style.left  = Math.round(bar.x - pillW / 2) + 'px';
+        });
+    });
+}
+
+function refreshTraceroute() {
+    // Invalida cache forçando nova chamada após intervalo
+    updateTraceroute();
+}
+
+// ── Markdown simples ──────────────────────────────────────────────────────
+function md(text) {
+    if (!text) return '';
+    if (typeof text !== 'string') text = JSON.stringify(text);
+    return text
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-200">$1</strong>')
+        .replace(/`([^`]+)`/g, '<code class="text-emerald-400 bg-slate-800 px-1 rounded text-[9px]">$1</code>')
+        .replace(/^\s*\*\s+/gm, '• ')
+        .replace(/\n{2,}/g, '</p><p class="mt-2">')
+        .replace(/\n/g, '<br>');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+async function api(url) {
+    try { const r = await fetch(url); return await r.json(); }
+    catch { return null; }
+}
+
+function setColor(el, val, okMax, warnMax) {
+    el.className = el.className.replace(/text-(emerald|yellow|red|slate)-\d+/g, '');
+    el.classList.add(val <= okMax ? 'text-emerald-400' : val <= warnMax ? 'text-yellow-400' : 'text-red-400');
+}
+
+function barColor(val, okMax, warnMax) {
+    return val <= okMax ? 'bg-emerald-500' : val <= warnMax ? 'bg-yellow-500' : 'bg-red-500';
+}
+
+function signalInfo(dbm) {
+    const pct = Math.max(0, Math.min(100, ((dbm + 95) / 55) * 100));
+    if (dbm >= -60) return { pct, color: '#10b981', label: 'Excelente' };
+    if (dbm >= -70) return { pct, color: '#34d399', label: 'Bom' };
+    if (dbm >= -80) return { pct, color: '#f59e0b', label: 'Regular' };
+    return { pct, color: '#ef4444', label: 'Fraco' };
+}
+
+function timeAgo(isoStr) {
+    if (!isoStr) return '--';
+    const diff = Math.floor((Date.now() - new Date(isoStr)) / 60000);
+    if (diff < 1) return 'agora';
+    if (diff < 60) return diff + ' min atrás';
+    if (diff < 1440) return Math.floor(diff/60) + 'h atrás';
+    return Math.floor(diff/1440) + 'd atrás';
+}
+
+function setStatus(ok) {
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    if (ok) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 pulse';
+        txt.className = 'text-[9px] font-bold uppercase text-emerald-400 tracking-widest';
+        txt.textContent = 'NOMINAL';
+    } else {
+        dot.className = 'w-2 h-2 rounded-full bg-red-500 pulse';
+        txt.className = 'text-[9px] font-bold uppercase text-red-400 tracking-widest';
+        txt.textContent = 'ALERTA';
+    }
+}
+
+// ── Alert Manager ─────────────────────────────────────────────────────────
+const alertManager = (() => {
+    const _map = new Map(); // id → {level, title, message}
+
+    function set(id, level, title, message) {
+        _map.set(id, { level, title, message });
+        _render();
+    }
+    function clear(...ids) {
+        let changed = false;
+        ids.forEach(id => { if (_map.delete(id)) changed = true; });
+        if (changed) _render();
+    }
+    function clearPrefix(prefix) {
+        let changed = false;
+        for (const k of _map.keys()) if (k.startsWith(prefix)) { _map.delete(k); changed = true; }
+        if (changed) _render();
+    }
+    // Remove alertas cujo título ou mensagem corresponde ao regex
+    function clearMatching(regex) {
+        let changed = false;
+        for (const [k, v] of _map) {
+            if (regex.test(v.title + ' ' + v.message)) { _map.delete(k); changed = true; }
+        }
+        if (changed) _render();
+    }
+
+    function _render() {
+        const items  = [..._map.entries()].map(([id, v]) => ({ id, ...v }));
+        const crits  = items.filter(a => a.level === 'critical');
+        const warns  = items.filter(a => a.level === 'warning');
+        const infos  = items.filter(a => a.level === 'info');
+
+        const dot     = document.getElementById('alerts-dot');
+        const titleEl = document.getElementById('alerts-title');
+        const sumEl   = document.getElementById('alerts-summary');
+        const chevron = document.getElementById('alerts-chevron');
+        const panel   = document.getElementById('alerts-panel');
+        const btn     = document.getElementById('alerts-btn');
+
+        if (items.length === 0) {
+            dot.className      = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+            titleEl.className  = 'text-[8px] font-bold uppercase tracking-widest text-emerald-700';
+            titleEl.textContent = 'Sistema Nominal — Nenhum Alerta';
+            sumEl.textContent  = '';
+            chevron.classList.add('hidden');
+            panel.classList.add('hidden');
+            return;
+        }
+
+        const hasCrit = crits.length > 0;
+        dot.className     = hasCrit ? 'w-1.5 h-1.5 rounded-full bg-red-500 pulse'
+                                    : 'w-1.5 h-1.5 rounded-full bg-amber-500 pulse';
+        titleEl.className = hasCrit ? 'text-[8px] font-bold uppercase tracking-widest text-red-400'
+                                    : 'text-[8px] font-bold uppercase tracking-widest text-amber-400';
+        titleEl.textContent = hasCrit
+            ? `${crits.length} Alerta${crits.length > 1 ? 's' : ''} Crítico${crits.length > 1 ? 's' : ''}`
+            : `${warns.length} Aviso${warns.length > 1 ? 's' : ''}`;
+
+        const parts = [];
+        if (crits.length) parts.push(`${crits.length} crítico${crits.length > 1 ? 's' : ''}`);
+        if (warns.length) parts.push(`${warns.length} aviso${warns.length > 1 ? 's' : ''}`);
+        if (infos.length) parts.push(`${infos.length} info`);
+        sumEl.textContent = parts.join(' · ');
+
+        chevron.classList.remove('hidden');
+        if (hasCrit) panel.classList.remove('hidden'); // auto-expande críticos
+
+        const order = { critical: 0, warning: 1, info: 2 };
+        const sorted = [...items].sort((a, b) => order[a.level] - order[b.level]);
+
+        panel.innerHTML = sorted.map(a => {
+            const C = a.level === 'critical'
+                ? { border: 'border-red-500/30',   bg: 'bg-red-500/5',   text: 'text-red-400',   sub: 'text-red-900' }
+                : a.level === 'warning'
+                ? { border: 'border-amber-500/30', bg: 'bg-amber-500/5', text: 'text-amber-400', sub: 'text-amber-900' }
+                : { border: 'border-blue-500/30',  bg: 'bg-blue-500/5',  text: 'text-blue-400',  sub: 'text-blue-900' };
+            const icon = a.level === 'critical' ? '⬤' : a.level === 'warning' ? '▲' : '●';
+            return `<div class="border ${C.border} ${C.bg} rounded-xl px-3 py-2 fade-in">
+                <div class="flex items-start gap-2">
+                    <span class="text-[8px] mt-0.5 ${C.text} shrink-0">${icon}</span>
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-bold ${C.text}">${a.title}</p>
+                        <p class="text-[8px] ${C.sub} mt-0.5 leading-snug">${a.message}</p>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    return { set, clear, clearPrefix, clearMatching };
+})();
+
+function toggleAlerts() {
+    const panel   = document.getElementById('alerts-panel');
+    const chevron = document.getElementById('alerts-chevron');
+    const hidden  = panel.classList.toggle('hidden');
+    chevron.textContent = hidden ? '▼' : '▲';
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────
+setInterval(() => {
+    document.getElementById('clock').textContent =
+        new Date().toLocaleTimeString('pt-BR');
+}, 1000);
+
+// ── Ping / Latência ───────────────────────────────────────────────────────
+async function updatePing() {
+    const d = await api('/performance/ping');
+    if (!d) return;
+    const lat = +(d.latency ?? 0);
+    const jitter = +(d.jitter ?? 0);
+    const loss = +(d.loss ?? 0);
+
+    const latEl = document.getElementById('kpi-lat');
+    latEl.textContent = lat.toFixed(1);
+    setColor(latEl, lat, 50, 120);
+
+    document.getElementById('kpi-jitter').textContent = jitter.toFixed(1);
+
+    document.getElementById('kpi-loss').textContent = loss;
+    const lossBar = document.getElementById('loss-bar');
+    lossBar.style.width = Math.min(loss, 100) + '%';
+    lossBar.className = `h-full transition-all duration-500 ${barColor(loss, 1, 5)}`;
+
+    if (loss > 10)
+        alertManager.set('loss-crit', 'critical', 'Perda de Pacotes Crítica', `${loss}% dos pacotes perdidos — conectividade instável`);
+    else if (loss > 2)
+        alertManager.set('loss-crit', 'warning', 'Perda de Pacotes', `${loss}% de perda detectada`);
+    else
+        alertManager.clear('loss-crit');
+
+    if (lat > 200)
+        alertManager.set('lat-crit', 'critical', 'Latência WAN Crítica', `${lat.toFixed(0)} ms — impacto severo em aplicações em tempo real`);
+    else if (lat > 120)
+        alertManager.set('lat-crit', 'warning', 'Latência WAN Elevada', `${lat.toFixed(0)} ms`);
+    else
+        alertManager.clear('lat-crit');
+
+    if (loss > 5 || lat > 120) setStatus(false);
+}
+
+// ── MikroTik Health (SNMP) ────────────────────────────────────────────────
+async function updateMikrotik() {
+    const d = await api('/mikrotik/health');
+    if (!d) return;
+
+    if (d.snmp_error || d.error) {
+        alertManager.set('snmp-down', 'warning', 'SNMP MikroTik Indisponível',
+            'Habilite SNMP no MikroTik: /snmp set enabled=yes community=public');
+        return;
+    }
+    alertManager.clear('snmp-down');
+    alertManager.clearMatching(/snmp|monitoramento.*mikrotik|mikrotik.*falha/i);
+
+    const cpu = typeof d.cpu_usage === 'number' ? d.cpu_usage : 0;
+    const cpuEl = document.getElementById('kpi-cpu');
+    cpuEl.textContent = cpu;
+    setColor(cpuEl, cpu, 60, 85);
+    const cpuBar = document.getElementById('cpu-bar');
+    cpuBar.style.width = cpu + '%';
+    cpuBar.className = `h-full transition-all duration-500 ${barColor(cpu, 60, 85)}`;
+
+    const temp = d.temperature;
+    const tempEl = document.getElementById('kpi-temp');
+    tempEl.textContent = temp != null ? temp.toFixed(1) : '--';
+    if (temp != null) setColor(tempEl, temp, 60, 75);
+
+    document.getElementById('kpi-volt').textContent =
+        d.voltage != null ? d.voltage.toFixed(1) + ' V' : '--';
+
+    document.getElementById('kpi-uptime').textContent = d.uptime_str || '--';
+
+    // RAM livre — unidade SNMP = 1024 bytes → converte para MB
+    const mem = d.mem_free;
+    if (mem != null) {
+        const memMB = Math.round(mem / 1024);
+        const ramEl = document.getElementById('kpi-ram');
+        ramEl.textContent = memMB;
+        setColor(ramEl, 100 - Math.min(memMB, 64) / 64 * 100, 60, 85); // % usada
+        const ramBar = document.getElementById('ram-bar');
+        ramBar.style.width = Math.min(memMB / 64 * 100, 100) + '%'; // % livre
+        ramBar.className = `h-full transition-all duration-500 ${memMB > 20 ? 'bg-emerald-500' : memMB > 8 ? 'bg-yellow-500' : 'bg-red-500'}`;
+    }
+
+    // Alertas CPU
+    if (cpu > 85)
+        alertManager.set('mk-cpu', 'critical', 'CPU MikroTik Crítica', `${cpu}% — risco de instabilidade`);
+    else if (cpu > 60)
+        alertManager.set('mk-cpu', 'warning', 'CPU MikroTik Elevada', `${cpu}%`);
+    else
+        alertManager.clear('mk-cpu');
+
+    // Alertas Temperatura
+    if (temp != null) {
+        if (temp > 75)
+            alertManager.set('mk-temp', 'critical', 'Temperatura Crítica MikroTik', `${temp.toFixed(1)}°C — risco de hardware`);
+        else if (temp > 60)
+            alertManager.set('mk-temp', 'warning', 'Temperatura Elevada MikroTik', `${temp.toFixed(1)}°C`);
+        else
+            alertManager.clear('mk-temp');
+    }
+
+    // Alertas RAM (mem_free em unidades SNMP × 1024 = bytes → MB)
+    if (d.mem_free != null) {
+        const memMB = Math.round(d.mem_free / 1024);
+        if (memMB < 8)
+            alertManager.set('mk-ram', 'critical', 'RAM MikroTik Crítica', `Apenas ${memMB} MB livres`);
+        else if (memMB < 20)
+            alertManager.set('mk-ram', 'warning', 'RAM MikroTik Baixa', `${memMB} MB livres`);
+        else
+            alertManager.clear('mk-ram');
+    }
+
+    if (cpu > 85 || (temp != null && temp > 75)) setStatus(false);
+}
+
+// ── Tráfego ───────────────────────────────────────────────────────────────
+async function updateTraffic() {
+    const d = await api('/network/traffic');
+    if (!d?.history) return;
+    const hist = d.history;
+    trafficChart.data.datasets[0].data = hist.map(x => x.download);
+    trafficChart.data.datasets[1].data = hist.map(x => x.upload);
+    trafficChart.update('none');
+    const last = hist[hist.length - 1] || {};
+    document.getElementById('dl-now').textContent = (last.download ?? 0).toFixed(2);
+    document.getElementById('ul-now').textContent = (last.upload ?? 0).toFixed(2);
+}
+
+// ── WiFi Vilachaves ───────────────────────────────────────────────────────
+async function updateWifi() {
+    const leases = await api('/mikrotik/clients');
+
+    const el = document.getElementById('wifi-list');
+    const countEl = document.getElementById('wifi-count');
+
+    const list = Array.isArray(leases) ? leases.filter(l => l.status !== 'waiting') : [];
+    countEl.textContent = list.length + ' cliente' + (list.length !== 1 ? 's' : '');
+
+    if (list.length === 0) {
+        el.innerHTML = '<p class="text-[10px] text-slate-700 italic">Nenhum lease DHCP ativo.</p>';
+        return;
+    }
+
+    const statusColor = s => s === 'bound' ? '#10b981' : s === 'waiting' ? '#f59e0b' : '#64748b';
+
+    el.innerHTML = list.map(l => {
+        const name = l['host-name'] || l['comment'] || l['mac-address']?.slice(-8) || '?';
+        const ip   = l.address || '';
+        const mac  = l['mac-address'] || '';
+        const st   = l.status || '';
+        const sc   = statusColor(st);
+        return `
+        <div class="fade-in flex items-center justify-between py-1 border-b border-slate-800/50">
+            <div class="min-w-0">
+                <p class="text-[10px] text-slate-300 font-bold truncate">${name}</p>
+                <p class="text-[9px] text-slate-600">${ip} · <span class="text-slate-700">${mac}</span></p>
+            </div>
+            <span class="text-[8px] font-bold ml-2 shrink-0" style="color:${sc}">${st}</span>
+        </div>`;
+    }).join('');
+}
+
+// ── Topologia ─────────────────────────────────────────────────────────
+async function updateTopology() {
+    const d = await api('/topology/live');
+    if (!d || d.error) return;
+
+    if (d.isp?.double_nat) document.getElementById('topo-nat-badge').classList.remove('hidden');
+
+    // ── Alertas de WAN / Failover ─────────────────────────────────────
+    const isp = d.isp || {};
+    if (isp.failover_active) {
+        alertManager.set('wan-failover', 'critical', '⚡ Failover Ativo — Link Vivo Indisponível',
+            'Tráfego roteado via NIO (link de backup). NAT duplo ativo — VoIP, jogos online e acesso remoto podem ser afetados.');
+        alertManager.set('double-nat', 'warning', 'NAT Duplo (NIO)',
+            'Link NIO faz NAT mesmo em DMZ. Impacto: jogos online, chamadas WhatsApp, UPnP. Normaliza quando Vivo retornar.');
+    } else {
+        alertManager.clear('wan-failover');
+        if (!isp.double_nat) alertManager.clear('double-nat');
+    }
+    if (isp.vivo_up === false && isp.nio_up === false) {
+        alertManager.set('wan-down', 'critical', '🔴 Sem Conectividade WAN', 'Nenhum link de internet ativo detectado.');
+    } else {
+        alertManager.clear('wan-down');
+    }
+
+    // Vivo saiu do bridge mode (IP privado na WAN = modem virou NAT)
+    if (isp.vivo_double_nat) {
+        alertManager.set('vivo-bridge', 'critical', '⚠️ Vivo saiu do modo Bridge!',
+            `Modem Vivo está com IP privado na WAN (${isp.vivo_ip || '?'}) — voltou ao modo NAT. PPPoE pode estar comprometido. Acesse o modem e reative o modo bridge.`);
+    } else {
+        alertManager.clear('vivo-bridge');
+    }
+
+    const svg   = document.getElementById('topo-svg');
+    const W     = svg.parentElement.clientWidth || 700;
+    const ports = Object.values(d.ports || {}).sort((a,b) => a.port.localeCompare(b.port));
+    const clients = d.wifi_clients || [];
+
+    // ── Paleta ─────────────────────────────────────────────────────────
+    const C = {
+        internet: { fill:'#0f172a', stroke:'#6366f1', text:'#a5b4fc', icon:'🌐' },
+        router:   { fill:'#0f172a', stroke:'#10b981', text:'#34d399', icon:'⬡'  },
+        warn:     { fill:'#0f172a', stroke:'#f59e0b', text:'#fbbf24', icon:'⚠'  },
+        ap:       { fill:'#0f172a', stroke:'#3b82f6', text:'#93c5fd', icon:'⬡'  },
+        client:   { fill:'#0c1628', stroke:'#334155', text:'#64748b', icon:'◌'  },
+        inactive: { fill:'#0c1628', stroke:'#1e293b', text:'#475569', icon:'◌'  },
+    };
+
+    // ── Nó SVG ─────────────────────────────────────────────────────────
+    function node(x, y, w, h, label, sub, color, extraBadge='') {
+        const rx = x - w/2, ry = y - h/2;
+        return `
+        <rect x="${rx}" y="${ry}" width="${w}" height="${h}" rx="8"
+              fill="${color.fill}" stroke="${color.stroke}" stroke-width="1.5"/>
+        ${extraBadge}
+        <text x="${x}" y="${y - 6}" text-anchor="middle"
+              font-family="JetBrains Mono,monospace" font-size="10" font-weight="700"
+              fill="${color.text}">${label}</text>
+        <text x="${x}" y="${y + 9}" text-anchor="middle"
+              font-family="JetBrains Mono,monospace" font-size="8"
+              fill="${color.text}88">${sub}</text>`;
+    }
+
+    // ── Linha com label de porta ────────────────────────────────────────
+    function link(x1,y1,x2,y2, portLabel='', warn=false) {
+        const mx = (x1+x2)/2, my = (y1+y2)/2;
+        const col = warn ? '#f59e0b' : '#1e3a2e';
+        return `
+        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+              stroke="${col}" stroke-width="1.5" stroke-dasharray="${warn?'4 3':'0'}"/>
+        ${portLabel ? `<rect x="${mx-18}" y="${my-8}" width="36" height="14" rx="4" fill="#020617" stroke="${col}" stroke-width="1"/>
+        <text x="${mx}" y="${my+4}" text-anchor="middle"
+              font-family="JetBrains Mono,monospace" font-size="7" font-weight="700"
+              fill="${col}">${portLabel}</text>` : ''}`;
+    }
+
+    // ── Layout ─────────────────────────────────────────────────────────
+    const NW = 140, NH = 44;
+    const CW = 120, CH = 36;
+    const SLOT_W = CW + 20;   // 140px por slot — sem sobreposição
+    const SLOT_H = CH + 28;   // 64px por linha de clientes
+    const cx = W / 2;
+
+    // Eixos Y por camada
+    const Y = { internet:40, isp:120, mikrotik:210, ap:310, client:420 };
+
+    // Quantos APs
+    const apCount  = Math.max(ports.length, 1);
+    const apSpread = Math.min(W - 40, apCount * 190);
+    const apXs     = apCount === 1 ? [cx]
+        : ports.map((_,i) => cx - apSpread/2 + i * apSpread/(apCount-1));
+
+    // Clientes distribuídos por AP (sem saber qual AP → divide igualmente)
+    const active   = clients.filter(c => c.status === 'Ativo');
+    const inactive = clients.filter(c => c.status !== 'Ativo');
+    const allClients = [...active, ...inactive];
+    const perAp = apCount > 0 ? Math.ceil(allClients.length / apCount) : allClients.length;
+
+    // Quantas colunas cabem na largura disponível
+    const maxCols  = Math.max(1, Math.floor((W - 20) / SLOT_W));
+    const numRows  = allClients.length > 0 ? Math.ceil(allClients.length / maxCols) : 0;
+
+    const svgH = numRows > 0
+        ? Y.client + numRows * SLOT_H + 20
+        : Y.ap + 70;
+    svg.setAttribute('height', svgH);
+    svg.setAttribute('viewBox', `0 0 ${W} ${svgH}`);
+
+    let html = '';
+
+    // Internet
+    html += link(cx, Y.internet + NH/2, cx, Y.isp - NH/2);
+    html += node(cx, Y.internet, NW, NH, '🌐  Internet', 'WAN Uplink',
+                 C.internet);
+
+    // ISP / Modem
+    const ispColor = isp.failover_active ? C.warn : (isp.double_nat ? C.warn : C.router);
+    const ispLabel = isp.failover_active
+        ? `⚡ FAILOVER — ${isp.vendor || 'NIO'}`
+        : `${isp.double_nat ? '⚠ ' : ''}ISP — ${isp.vendor || 'Vivo'}`;
+    const ispBadge = isp.failover_active
+        ? `<rect x="${cx-50}" y="${Y.isp-28}" width="100" height="13" rx="4" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+           <text x="${cx}" y="${Y.isp-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fca5a5">VIVO OFFLINE · BACKUP ATIVO</text>`
+        : (isp.double_nat
+            ? `<rect x="${cx+36}" y="${Y.isp-28}" width="46" height="13" rx="4" fill="#78350f" stroke="#f59e0b" stroke-width="1"/>
+               <text x="${cx+59}" y="${Y.isp-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fbbf24">DOUBLE NAT</text>`
+            : '');
+    html += link(cx, Y.isp + NH/2, cx, Y.mikrotik - NH/2, '', isp.failover_active || isp.double_nat);
+    html += node(cx, Y.isp, NW, NH, ispLabel, isp.ip || '--', ispColor, ispBadge);
+
+    // MikroTik
+    const mkSub = [
+        d.mikrotik?.ip,
+        d.mikrotik?.cpu != null ? `CPU ${d.mikrotik.cpu}%` : null,
+        d.mikrotik?.temp != null ? `${d.mikrotik.temp}°C` : null,
+    ].filter(Boolean).join('  ·  ');
+    html += node(cx, Y.mikrotik, NW+20, NH, '⬡  MikroTik', mkSub, C.router);
+
+    // Portas → APs
+    ports.forEach((p, i) => {
+        const ax = apXs[i];
+        html += link(cx, Y.mikrotik + NH/2, ax, Y.ap - NH/2, p.port);
+        const apLabel = p.hostname?.replace('Twibi_Force_AX_','').replace('Twibi Force AX','') || p.port;
+        html += node(ax, Y.ap, CW+10, NH, `⬡  ${apLabel}`, p.ip || '--', C.ap);
+    });
+
+    // Fallback se não há neighbors
+    if (ports.length === 0) {
+        html += link(cx, Y.mikrotik + NH/2, cx, Y.ap - NH/2, 'eth');
+        html += node(cx, Y.ap, CW+10, NH, '⬡  APs', 'sem dados', C.ap);
+    }
+
+    // Clientes — grid multi-linha, centrado, sem sobreposição
+    if (allClients.length > 0) {
+        allClients.forEach((c, i) => {
+            const row = Math.floor(i / maxCols);
+            const col = i % maxCols;
+
+            // Número de itens nesta linha (última linha pode ter menos)
+            const rowStart = row * maxCols;
+            const rowCount = Math.min(maxCols, allClients.length - rowStart);
+
+            // Centraliza cada linha horizontalmente
+            const rowTotalW = rowCount * SLOT_W;
+            const rowLeft   = (W - rowTotalW) / 2 + SLOT_W / 2;
+            const cliX      = rowLeft + col * SLOT_W;
+            const cliY      = Y.client + row * SLOT_H;
+
+            // Liga ao AP correspondente (distribuição equitativa)
+            const apIdx = Math.min(Math.floor(i / perAp), apCount - 1);
+            const apX   = apXs[apIdx] ?? cx;
+
+            const color = c.status === 'Ativo' ? C.client : C.inactive;
+            const name  = (c.hostname && c.hostname !== '-') ? c.hostname : c.mac?.slice(-8) || '?';
+            html += link(apX, Y.ap + NH/2, cliX, cliY - CH/2, '', false);
+            html += node(cliX, cliY, CW, CH, name, c.ip || '--', color);
+        });
+    }
+
+    svg.innerHTML = html;
+}
+
+// ── Mesh Twibi ────────────────────────────────────────────────────────
+async function updateMesh() {
+    const nodes = await api('/twibi/mesh');
+    if (!Array.isArray(nodes) || nodes.length === 0) return;
+
+    // Firmware badge (usa o primeiro nó)
+    const fw = nodes[0]?.fw_version;
+    const hasFwUpdate = nodes.some(n => n.firmware_update);
+    const fwEl = document.getElementById('mesh-fw');
+    fwEl.textContent = fw ? `fw ${fw}` : '--';
+    if (hasFwUpdate) fwEl.classList.add('text-yellow-600');
+
+    const container = document.getElementById('mesh-nodes');
+    container.innerHTML = nodes.map(node => {
+        const online = node.has_internet && !node.error;
+        const statusColor = online ? 'bg-emerald-500' : 'bg-red-500';
+        const r24 = node.radios?.find(r => r.freq === '2.4GHz');
+        const r5  = node.radios?.find(r => r.freq === '5GHz');
+        const modeColor = node.mode === 'Router' ? 'text-emerald-500' : 'text-blue-400';
+
+        const radioRow = (r) => r ? `
+            <div class="flex justify-between items-center">
+                <span class="text-[8px] text-slate-600">${r.freq}</span>
+                <span class="text-[8px] text-slate-400">ch${r.channel} · ${r.bandwidth}</span>
+                <div class="flex gap-1">
+                    ${r.wifi6  ? '<span class="text-[7px] font-bold text-blue-500 border border-blue-500/30 px-1 rounded">WiFi6</span>' : ''}
+                    ${r.mu_mimo ? '<span class="text-[7px] text-slate-600">MU</span>' : ''}
+                    ${r.ofdma  ? '<span class="text-[7px] text-slate-600">OFDMA</span>' : ''}
+                </div>
+            </div>` : '';
+
+        return `
+        <div class="glass rounded-xl p-3 fade-in">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full ${statusColor}"></div>
+                    <span class="text-[10px] font-bold text-white truncate max-w-[110px]">${node.alias || node.name}</span>
+                </div>
+                <span class="text-[8px] font-bold ${modeColor}">${node.mode || '--'}</span>
+            </div>
+            <p class="text-[8px] text-slate-600 mb-2">up <span class="text-slate-400">${node.uptime_str || '--'}</span> · <span class="text-slate-700">${node.host}</span></p>
+            <div class="space-y-1 border-t border-slate-800/60 pt-2">
+                ${radioRow(r24)}
+                ${radioRow(r5)}
+            </div>
+            ${node.firmware_update ? '<p class="text-[8px] text-yellow-500 mt-2">⚠ Atualização disponível</p>' : ''}
+            ${node.error ? `<p class="text-[8px] text-red-500 mt-1">${node.error}</p>` : ''}
+        </div>`;
+    }).join('');
+}
+
+// ── Dispositivos + AI ─────────────────────────────────────────────────────
+async function updateDashboard() {
+    const d = await api('/dashboard/stats');
+    if (!d) return;
+
+    const devices = d.raw_report?.devices || [];
+    const active = devices.filter(x => x.status?.includes('Ativo'));
+    document.getElementById('kpi-devices').textContent = active.length || devices.length || '--';
+
+    const ts = d.stats?.timestamp;
+    if (ts) {
+        const ago = timeAgo(ts);
+        document.getElementById('kpi-scan-age').textContent = ago;
+        document.getElementById('devices-scan-time').textContent = 'scan ' + ago;
+        document.getElementById('ai-ts').textContent = new Date(ts).toLocaleString('pt-BR');
+    }
+
+    // DNS KPI + alerta
+    const dns = d.raw_report?.dns;
+    if (dns) {
+        if (dns.elapsed_ms != null) {
+            const dnsEl = document.getElementById('kpi-dns');
+            const dnsMs = +dns.elapsed_ms;
+            dnsEl.textContent = dnsMs.toFixed(0);
+            setColor(dnsEl, dnsMs, 60, 150);
+            document.getElementById('kpi-dns-domain').textContent = dns.domain || '';
+            if (dnsMs > 300)
+                alertManager.set('dns-slow', 'warning', 'DNS Lento', `${dnsMs.toFixed(0)} ms para resolver ${dns.domain}`);
+            else
+                alertManager.clear('dns-slow');
+        }
+        if (dns.resolved === false)
+            alertManager.set('dns-fail', 'critical', 'Falha de DNS', `Não foi possível resolver ${dns.domain}`);
+        else
+            alertManager.clear('dns-fail');
+    }
+
+    // Route KPI — NAT e hops (dados do último scan, traceroute live substitui)
+    const route = d.raw_report?.route;
+    if (route) {
+        const validHops = (route.hops || []).filter(h => h.ip && h.ip !== '*');
+        const hopsEl = document.getElementById('kpi-hops');
+        if (hopsEl.textContent === '--') hopsEl.textContent = validHops.length || '--';
+        if (route.nat_multiple_suspected) {
+            document.getElementById('kpi-nat-ok').classList.add('hidden');
+            document.getElementById('kpi-nat-warn').classList.remove('hidden');
+            alertManager.set('double-nat', 'warning', 'Double NAT Detectado',
+                'Dois dispositivos NAT em série — pode prejudicar VoIP, jogos e acesso remoto');
+        }
+    }
+
+    // PRD Acceptance Criteria
+    const prd = d.raw_report?.prd_acceptance?.criteria || {};
+    alertManager.clearPrefix('prd-');
+    const prdLabels = { CA01:'Cobertura de Hosts', CA02:'Double NAT', CA03:'DHCP Duplicado', CA04:'Diagnóstico AI', CA05:'Relatório JSON' };
+    const aiParsedForPrd = d.stats?.ai_summary || {};
+    Object.entries(prd).forEach(([id, crit]) => {
+        // CA04: o status no DB pode ser contraditório — só alerta se o AI realmente está vazio
+        if (id === 'CA04') {
+            const aiHasContent = Object.keys(aiParsedForPrd).length > 0;
+            if (aiHasContent) return; // AI funcionando, ignora status inconsistente
+        }
+        if (crit.status === 'failed')
+            alertManager.set(`prd-${id}`, 'warning', `PRD ${id} — ${prdLabels[id]||id} Falhou`, crit.message);
+        else if (crit.status === 'not_evaluated')
+            alertManager.set(`prd-${id}`, 'info', `PRD ${id} — ${prdLabels[id]||id} Não Avaliado`, crit.message);
+    });
+
+    // AI — problemas encontrados (suporta múltiplos nomes de campo)
+    const aiParsed = d.stats?.ai_summary || {};
+    const problems = aiParsed.lista_de_problemas_encontrados
+        || aiParsed.problemas_encontrados
+        || aiParsed.problemas_identificados
+        || [];
+    alertManager.clearPrefix('ai-prob-');
+    if (Array.isArray(problems)) {
+        problems.slice(0, 10).forEach((p, i) => {
+            const text   = (typeof p === 'string' ? p : JSON.stringify(p)).replace(/\*\*/g, '').trim();
+            const title  = text.replace(/^\d+\.\s*/, '').slice(0, 70);
+            const detail = text.slice(0, 160) + (text.length > 160 ? '…' : '');
+            const level  = /crítico|falha|down|indisponível|não resolve|sem internet/i.test(text)
+                ? 'critical' : 'warning';
+            alertManager.set(`ai-prob-${i}`, level, title, detail);
+        });
+    }
+
+    // Riscos (riscos_se_nada_for_corrigido) são consequências futuras, não alertas ativos.
+    // Exibidos apenas no painel AI — não adicionados ao alertManager.
+
+    // Tabela de dispositivos
+    const tbody = document.getElementById('devices-tbody');
+    if (devices.length > 0) {
+        const ipNum = ip => (ip || '0.0.0.0').split('.').reduce((a, o) => a * 256 + +o, 0);
+        tbody.innerHTML = [...devices]
+            .sort((a, b) => ipNum(a.ip) - ipNum(b.ip))
+            .map(dev => {
+                const isActive = dev.status?.includes('Ativo');
+                return `<tr>
+                    <td class="py-1.5 pr-4 text-emerald-500 font-bold">${dev.ip || '--'}</td>
+                    <td class="py-1.5 pr-4 text-slate-300">${dev.hostname || '-'}</td>
+                    <td class="py-1.5 pr-4 text-slate-600 hidden md:table-cell truncate max-w-[180px]">${dev.vendor || '-'}</td>
+                    <td class="py-1.5">
+                        <span class="inline-flex items-center gap-1 text-[8px] font-bold uppercase
+                            ${isActive ? 'text-emerald-500' : 'text-slate-700'}">
+                            <span class="w-1.5 h-1.5 rounded-full
+                                ${isActive ? 'bg-emerald-500' : 'bg-slate-700'}"></span>
+                            ${dev.status || '-'}
+                        </span>
+                    </td>
+                </tr>`;
+            }).join('');
+    }
+
+    // ── AI Report ────────────────────────────────────────────────────
+    const ai = d.stats?.ai_summary || {};
+
+    // Diagnóstico detalhado
+    const diagRaw = ai.diagnostico_detalhado || ai.summary || '';
+    const diagEl  = document.getElementById('ai-diagnostico');
+    if (diagRaw) {
+        if (typeof diagRaw === 'string') {
+            diagEl.innerHTML = `<p>${md(diagRaw)}</p>`;
+        } else if (typeof diagRaw === 'object') {
+            // Objeto com seções nomeadas — renderiza cada chave como título + conteúdo
+            const keyLabel = k => k.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+            diagEl.innerHTML = Object.entries(diagRaw).map(([k, v]) => {
+                const val = typeof v === 'object' ? Object.entries(v).map(([k2,v2]) =>
+                    `<div class="mt-1"><span class="text-slate-500 font-semibold">${keyLabel(k2)}:</span> ${md(String(v2))}</div>`
+                ).join('') : md(String(v));
+                return `<div class="mb-3">
+                    <p class="text-[9px] font-bold text-emerald-700 uppercase tracking-wider mb-1">${keyLabel(k)}</p>
+                    <div class="text-[12px] text-slate-300 leading-relaxed">${val}</div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    // Problemas — suporta objetos {id,descricao} ou strings simples (formato Gemini)
+    const rawProb = ai.problemas_encontrados || ai.problemas_identificados || [];
+    const problemas = rawProb.map((p, i) =>
+        typeof p === 'string'
+            ? { id: `P${String(i+1).padStart(2,'0')}`, descricao: p }
+            : p
+    );
+
+    if (problemas.length > 0) {
+        const countEl = document.getElementById('ai-problem-count');
+        countEl.textContent = problemas.length + ' problema' + (problemas.length > 1 ? 's' : '');
+        countEl.classList.remove('hidden');
+
+        document.getElementById('ai-problemas').innerHTML = problemas.map(p => `
+            <div class="border border-red-500/10 bg-red-500/5 rounded-xl p-3 fade-in">
+                <div class="flex items-start gap-2">
+                    <span class="text-[8px] font-bold text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded shrink-0 mt-0.5">${p.id}</span>
+                    <p class="text-[12px] text-slate-200 leading-snug font-medium">${md(p.descricao)}</p>
+                </div>
+            </div>`).join('');
+        document.getElementById('ai-problemas-wrap').classList.remove('hidden');
+        setStatus(false);
+    }
+
+    // Ações — suporta lista_de_acoes_passo_a_passo, acoes_recomendadas ou array simples
+    const acoes = ai.lista_de_acoes_passo_a_passo || ai.acoes_recomendadas || [];
+    if (acoes.length > 0) {
+        document.getElementById('ai-acoes').innerHTML = acoes.map(a => {
+            const txt = typeof a === 'string' ? a : (a.acao || a.descricao || JSON.stringify(a));
+            // Detecta se é passo principal (começa com número) ou sub-item (começa com • ou *)
+            const isMain = /^\s*\d+[\.\)]/.test(txt);
+            const isSub  = /^\s*[•\*\-]/.test(txt);
+            if (isMain) return `
+                <div class="mt-3 mb-1">
+                    <p class="text-[12px] font-bold text-slate-200 leading-snug">${md(txt)}</p>
+                </div>`;
+            if (isSub) return `
+                <div class="flex items-start gap-2 pl-3 text-[12px] text-slate-400 leading-relaxed">
+                    <span class="text-emerald-700 shrink-0 mt-1">›</span>
+                    <div>${md(txt.replace(/^\s*[•\*\-]\s*/,''))}</div>
+                </div>`;
+            return `
+                <div class="text-[12px] text-slate-400 leading-relaxed pl-3 border-l border-slate-800">${md(txt)}</div>`;
+        }).join('');
+        document.getElementById('ai-acoes-wrap').classList.remove('hidden');
+    }
+}
+
+// ── Navegação por seções ──────────────────────────────────────────────────
+function showSection(name) {
+    ['painel', 'tools'].forEach(s => {
+        document.getElementById('section-' + s).classList.toggle('hidden', s !== name);
+        const tab = document.getElementById('tab-' + s);
+        if (s === name) {
+            tab.classList.add('bg-emerald-600/20', 'text-emerald-400', 'border-emerald-500/30');
+            tab.classList.remove('text-slate-600', 'hover:text-slate-400', 'border-transparent', 'hover:border-slate-700');
+        } else {
+            tab.classList.remove('bg-emerald-600/20', 'text-emerald-400', 'border-emerald-500/30');
+            tab.classList.add('text-slate-600', 'hover:text-slate-400', 'border-transparent', 'hover:border-slate-700');
+        }
+    });
+    if (name === 'tools') loadTools();
+}
+
+// ── Ferramentas ───────────────────────────────────────────────────────────
+let _toolsLoaded = false;
+let _activeToolES = null;
+
+async function loadTools() {
+    if (_toolsLoaded) return;
+    const grid = document.getElementById('tools-grid');
+    grid.innerHTML = '<p class="text-[10px] text-slate-700 italic col-span-3">Carregando módulos...</p>';
+    const modules = await api('/tools/modules');
+    if (!modules || !Array.isArray(modules) || modules.length === 0) {
+        grid.innerHTML = '<p class="text-[10px] text-red-500 italic col-span-3">Erro ao carregar módulos ou nenhum módulo disponível.</p>';
+        return;
+    }
+    _toolsLoaded = true;
+    grid.innerHTML = modules.map(m => {
+        const icon = m.icon || '⚙';
+        const params = (m.params || []).map(p => `
+            <div class="mt-2">
+                <label class="text-[8px] font-bold text-slate-600 uppercase tracking-widest block mb-1">${p.label || p.name}</label>
+                <input type="text" id="tool-param-${m.id}-${p.name}"
+                    placeholder="${p.placeholder || p.default || ''}"
+                    value="${p.default || ''}"
+                    class="w-full bg-slate-900 border border-slate-700 text-emerald-400 font-bold text-[10px] rounded-lg px-2 py-1.5 outline-none focus:border-cyan-600"/>
+            </div>`).join('');
+        return `
+        <div class="glass rounded-xl p-3 flex flex-col gap-2 fade-in" style="border-color:rgba(6,182,212,0.12)">
+            <div class="flex items-start gap-2">
+                <span class="text-lg leading-none">${icon}</span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[11px] font-bold text-white truncate">${m.name}</p>
+                    <p class="text-[9px] text-slate-600 leading-snug mt-0.5">${m.description || ''}</p>
+                </div>
+            </div>
+            ${params}
+            <button onclick="runTool('${m.id}')"
+                class="mt-1 w-full py-1.5 bg-cyan-700/30 hover:bg-cyan-600/50 active:scale-95 text-cyan-300 border border-cyan-500/30 font-black text-[9px] uppercase tracking-widest rounded-lg transition-all">
+                ▶ EXECUTAR
+            </button>
+        </div>`;
+    }).join('');
+}
+
+async function runTool(id) {
+    // Coleta parâmetros deste tool
+    const paramInputs = document.querySelectorAll(`[id^="tool-param-${id}-"]`);
+    const params = {};
+    paramInputs.forEach(el => {
+        const pname = el.id.replace(`tool-param-${id}-`, '');
+        if (el.value.trim()) params[pname] = el.value.trim();
+    });
+
+    const terminal = document.getElementById('tools-terminal');
+    const spinner  = document.getElementById('tools-spinner');
+    const label    = document.getElementById('tools-running-label');
+
+    terminal.innerHTML = `<span style="color:#06b6d4">$ ferramentas run ${id}</span>\n`;
+    spinner.classList.remove('hidden');
+    label.classList.remove('hidden');
+
+    // Fecha EventSource anterior se houver
+    if (_activeToolES) { _activeToolES.close(); _activeToolES = null; }
+
+    // POST para iniciar + SSE para stream
+    try {
+        const resp = await fetch(`/tools/run/${id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+
+        // Se a resposta for SSE (text/event-stream), consome via ReadableStream
+        const ct = resp.headers.get('Content-Type') || '';
+        if (ct.includes('text/event-stream')) {
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            const pump = async () => {
+                const { done, value } = await reader.read();
+                if (done) {
+                    spinner.classList.add('hidden');
+                    label.classList.add('hidden');
+                    _appendToolLine(terminal, 'info', '--- concluído ---');
+                    return;
+                }
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                lines.forEach(line => {
+                    if (line.startsWith('data:')) {
+                        try {
+                            const ev = JSON.parse(line.slice(5).trim());
+                            _appendToolLine(terminal, ev.type || 'info', ev.message || ev.data || JSON.stringify(ev));
+                        } catch {
+                            const raw = line.slice(5).trim();
+                            if (raw) _appendToolLine(terminal, 'info', raw);
+                        }
+                    }
+                });
+                pump();
+            };
+            pump();
+        } else {
+            // Resposta JSON simples
+            const data = await resp.json();
+            spinner.classList.add('hidden');
+            label.classList.add('hidden');
+            _appendToolLine(terminal, 'result', JSON.stringify(data, null, 2));
+        }
+    } catch (err) {
+        spinner.classList.add('hidden');
+        label.classList.add('hidden');
+        _appendToolLine(terminal, 'error', 'Erro ao executar: ' + err.message);
+    }
+}
+
+function _appendToolLine(terminal, type, message) {
+    const colorMap = {
+        success: '#10b981',
+        error:   '#ef4444',
+        result:  '#06b6d4',
+        info:    '#e2e8f0',
+        warning: '#f59e0b',
+    };
+    const color = colorMap[type] || '#e2e8f0';
+    const prefix = { success: '✓ ', error: '✗ ', result: '→ ', info: '  ', warning: '⚠ ' }[type] || '  ';
+    const span = document.createElement('span');
+    span.style.color = color;
+    span.style.display = 'block';
+    span.textContent = prefix + message;
+    terminal.appendChild(span);
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function clearToolsTerminal() {
+    if (_activeToolES) { _activeToolES.close(); _activeToolES = null; }
+    document.getElementById('tools-terminal').innerHTML =
+        '<span style="color:#475569">$ aguardando execução de ferramenta...</span>';
+    document.getElementById('tools-spinner').classList.add('hidden');
+    document.getElementById('tools-running-label').classList.add('hidden');
+}
+
+// ── Modal Engage ──────────────────────────────────────────────────────────
+let _modalIfaces = [];
+
+function addExtraNetwork() {
+    const wrap = document.getElementById('extra-net-wrap');
+    const idx  = wrap.children.length;
+    const opts = _modalIfaces.map(i => `<option value="${i.id}" data-subnet="${i.subnet}">${i.display}</option>`).join('');
+    const firstSubnet = _modalIfaces[0]?.subnet || '';
+    const div = document.createElement('div');
+    div.className = 'flex gap-2 items-center';
+    div.innerHTML = `
+        <select class="extra-net-iface flex-1 bg-slate-900 border border-slate-700 text-blue-400 font-bold text-xs rounded-lg px-2 py-1.5 outline-none"
+                onchange="this.closest('div').querySelector('.extra-net-subnet').value=this.selectedOptions[0].dataset.subnet||''">
+            ${opts}
+        </select>
+        <input type="text" class="extra-net-subnet flex-1 bg-slate-900 border border-slate-700 text-blue-400 font-bold text-xs rounded-lg px-2 py-1.5 outline-none"
+               value="${firstSubnet}" placeholder="subnet">
+        <button onclick="this.parentElement.remove()" type="button" class="text-slate-700 hover:text-red-400 px-1">✕</button>`;
+    wrap.appendChild(div);
+}
+
+async function openModal() {
+    _modalIfaces = await api('/network/interfaces') || [];
+    const sel = document.getElementById('modal-iface');
+    sel.innerHTML = _modalIfaces.length
+        ? _modalIfaces.map(i => `<option value="${i.id}" data-subnet="${i.subnet}">${i.display}</option>`).join('')
+        : `<option value="eth0" data-subnet="192.168.100.0/24">eth0</option>`;
+
+    const firstSubnet = _modalIfaces[0]?.subnet || '192.168.100.0/24';
+    document.getElementById('modal-subnet').value = firstSubnet;
+
+    sel.onchange = () => {
+        const opt = sel.selectedOptions[0];
+        document.getElementById('modal-subnet').value = opt.dataset.subnet || '';
+    };
+
+    // Limpa redes extras anteriores
+    document.getElementById('extra-net-wrap').innerHTML = '';
+
+    document.getElementById('modal-engage').classList.replace('hidden','flex');
+}
+
+function closeModal() {
+    document.getElementById('modal-engage').classList.replace('flex','hidden');
+}
+
+async function launchScan() {
+    const iface  = document.getElementById('modal-iface').value;
+    const subnet = document.getElementById('modal-subnet').value;
+    const mods   = [...document.querySelectorAll('input[name="mod"]:checked')].map(el => el.value);
+
+    // Redes adicionais (dual-network)
+    const extraRows = document.querySelectorAll('#extra-net-wrap > div');
+    const networks  = [...extraRows].map(row => ({
+        interface: row.querySelector('.extra-net-iface').value,
+        subnet:    row.querySelector('.extra-net-subnet').value,
+    })).filter(n => n.subnet);
+
+    const btn = document.getElementById('btn-scan');
+    closeModal();
+
+    btn.textContent = 'SCANNING...';
+    btn.disabled = true;
+    btn.classList.replace('bg-emerald-600', 'bg-slate-700');
+    btn.classList.remove('hover:bg-emerald-500');
+
+    const scanStarted = Date.now();
+
+    try {
+        await fetch('/scan/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interface: iface, subnet, modules: mods, networks })
+        });
+    } catch {}
+
+    // Polling: detecta quando o novo resultado chega no banco
+    let dots = 0;
+    const poll = setInterval(async () => {
+        dots = (dots + 1) % 4;
+        btn.textContent = 'SCANNING' + '.'.repeat(dots + 1);
+
+        const d = await api('/dashboard/stats');
+        if (!d?.stats?.timestamp) return;
+
+        const resultTs = new Date(d.stats.timestamp).getTime();
+        if (resultTs > scanStarted) {
+            // Novo scan concluído — atualiza tudo
+            clearInterval(poll);
+            clearTimeout(pollTimeout);
+            btn.textContent = 'ENGAGE';
+            btn.disabled = false;
+            btn.classList.replace('bg-slate-700', 'bg-emerald-600');
+            btn.classList.add('hover:bg-emerald-500');
+            await Promise.all([updateDashboard(), updateTopology(), updateTraceroute()]);
+        }
+    }, 10_000);
+
+    // Segurança: desiste após 10 minutos
+    const pollTimeout = setTimeout(() => {
+        clearInterval(poll);
+        btn.textContent = 'ENGAGE';
+        btn.disabled = false;
+        btn.classList.replace('bg-slate-700', 'bg-emerald-600');
+        btn.classList.add('hover:bg-emerald-500');
+    }, 600_000);
+}
+
+// ── AI Toggle ─────────────────────────────────────────────────────────────
+function toggleAI() {
+    const panel = document.getElementById('ai-panel');
+    const icon  = document.getElementById('ai-chevron');
+    const hidden = panel.classList.toggle('hidden');
+    icon.textContent = hidden ? '▼' : '▲';
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────
+(async () => {
+    // Carga inicial
+    await Promise.all([updatePing(), updateMikrotik(), updateTraffic(), updateWifi(), updateMesh(), updateTopology(), updateDashboard(), updateTraceroute()]);
+
+    // Intervalos
+    setInterval(updatePing,      5_000);
+    setInterval(updateTraffic,   5_000);
+    setInterval(updateMikrotik, 10_000);
+    setInterval(updateWifi,     15_000);
+    setInterval(updateMesh,     30_000);
+    setInterval(updateTopology,   3_600_000); // 1 hora
+    setInterval(updateTraceroute,   300_000); // 5 min
+    setInterval(updateDashboard,30_000);
+    setInterval(setStatus, 60_000, true); // reset status a cada minuto
+})();
+
+</script>
+</body>
+</html>

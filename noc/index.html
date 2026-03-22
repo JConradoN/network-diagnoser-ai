@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>FOX NOC | Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        body { background: #020617; color: white; font-family: sans-serif; margin: 0; }
+        .glass { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); padding: 2rem; border-radius: 1.5rem; max-width: 1200px; margin: 2rem auto; }
+        .card { background: rgba(30,41,59,0.9); border-radius: 1rem; padding: 1.5rem; box-shadow: 0 2px 8px #0002; }
+        .checklist i { color: #10b981; }
+    </style>
+</head>
+<body>
+    <div class="glass">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+            <div>
+                <h1 class="text-4xl font-black italic">FOX <span class="text-green-500">NOC</span> <i class="fas fa-microchip text-green-400"></i></h1>
+                <p class="text-slate-400 text-xs mt-1">Inteligência de Rede & Diagnóstico Gemini</p>
+            </div>
+            <button id="scan-btn" class="bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-xl shadow transition-all mt-6 md:mt-0">
+                <i class="fas fa-sync-alt mr-2"></i> SOLICITAR NOVO SCAN
+            </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="metrics-cards">
+            <!-- Cards de métricas -->
+        </div>
+        <div class="flex flex-col md:flex-row gap-6">
+            <div class="flex-1 card" id="diagnostico-panel">
+                <h2 class="text-xl font-bold mb-4"><i class="fas fa-stethoscope text-green-400"></i> Diagnóstico Detalhado</h2>
+                <div id="diagnostico-content" class="text-slate-200 text-base"></div>
+            </div>
+            <div class="w-full md:w-80 card checklist">
+                <h2 class="text-lg font-bold mb-4"><i class="fas fa-list-check text-green-400"></i> Ações Recomendadas</h2>
+                <ul id="acoes-list" class="space-y-3"></ul>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function fetchStats() {
+            const res = await fetch('/dashboard/stats');
+            const data = await res.json();
+            const ai = data.stats?.ai_summary || {};
+            const health = ai.mikrotik_health || {};
+            // Cards de métricas
+            const cards = [
+                { icon: 'fa-thermometer-half', label: 'Temperatura', value: health.temperature ? health.temperature + '°C' : '--' },
+                { icon: 'fa-microchip', label: 'CPU', value: health.cpu ? health.cpu + '%' : '--' },
+                { icon: 'fa-clock', label: 'Uptime', value: health.uptime || '--' }
+            ];
+            document.getElementById('metrics-cards').innerHTML = cards.map(card => `
+                <div class="card flex items-center gap-4">
+                    <i class="fas ${card.icon} text-3xl text-green-400"></i>
+                    <div>
+                        <div class="text-lg font-bold">${card.value}</div>
+                        <div class="text-xs text-slate-400">${card.label}</div>
+                    </div>
+                </div>
+            `).join('');
+            // Diagnóstico detalhado
+            const diag = ai.diagnostico_detalhado || {};
+            let diagHtml = '';
+            for (const [k, v] of Object.entries(diag)) {
+                diagHtml += `<div class="mb-2"><span class="font-bold text-green-400">${k.replace(/_/g,' ').toUpperCase()}:</span> ${v}</div>`;
+            }
+            document.getElementById('diagnostico-content').innerHTML = diagHtml || '<span class="text-slate-500">Nenhum diagnóstico disponível.</span>';
+            // Ações recomendadas
+            const acoes = ai.lista_de_acoes_passo_a_passo || [];
+            document.getElementById('acoes-list').innerHTML = acoes.map(a => `
+                <li class="flex items-center gap-2"><i class="fas fa-check-circle"></i> <span>${a}</span></li>
+            `).join('') || '<li class="text-slate-500">Nenhuma ação recomendada.</li>';
+        }
+        document.getElementById('scan-btn').onclick = async () => {
+            await fetch('/scan/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            setTimeout(fetchStats, 2000);
+        };
+        fetchStats();
+    </script>
+</body>
+</html>

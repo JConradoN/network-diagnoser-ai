@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>FOX NOC | Launchpad</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #020617; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); padding: 2rem; border-radius: 1.5rem; width: 100%; max-width: 400px; }
+        .input-style { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.75rem; width: 100%; color: #10b981; font-weight: bold; margin-top: 0.5rem; outline: none; }
+    </style>
+</head>
+<body>
+    <div class="glass shadow-2xl">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-black italic">FOX <span class="text-green-500">NOC</span></h1>
+            <p class="text-slate-500 text-[10px] uppercase tracking-widest mt-1">Pre-Flight Configuration</p>
+        </div>
+
+        <form id="launch-form" class="space-y-6">
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase">Interface de Rede</label>
+                <select id="iface-select" class="input-style cursor-pointer"></select>
+            </div>
+            <div>
+                <label class="text-[10px] font-bold text-slate-500 uppercase">Subnet Alvo</label>
+                <input type="text" id="subnet-input" class="input-style" readonly>
+            </div>
+            
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-slate-500 uppercase">Módulos do Relatório</label>
+                <div class="grid grid-cols-1 gap-2 bg-black/20 p-3 rounded-xl text-xs">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="arp" checked disabled>
+                        <span>ARP Scanner <span class="text-green-400">(obrigatório)</span></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="latency" checked disabled>
+                        <span>Latency Tester <span class="text-green-400">(obrigatório)</span></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="dns" checked disabled>
+                        <span>DNS Tester <span class="text-green-400">(obrigatório)</span></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="problem" checked disabled>
+                        <span>Problem Detector <span class="text-green-400">(obrigatório)</span></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="ai" checked disabled>
+                        <span>Gemini AI Analyzer <span class="text-green-400">(obrigatório)</span></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="port">
+                        <span>Port Scanner</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="snmp">
+                        <span>SNMP Collector</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="mdns">
+                        <span>mDNS Discovery</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="ssdp">
+                        <span>SSDP Discovery</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="os">
+                        <span>OS Detection</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="dhcp">
+                        <span>DHCP Lease Reader</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" name="mod" value="topology">
+                        <span>Topology Builder</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Novo Card Fox NOC Dashboard -->
+            <div class="mt-8">
+                <a href="./noc/index.html" class="block card bg-gradient-to-br from-green-700 to-green-500 hover:from-green-600 hover:to-green-400 text-white text-center transition-all shadow-lg">
+                    <div class="flex flex-col items-center py-6">
+                        <i class="fas fa-microchip text-4xl mb-2"></i>
+                        <div class="font-black text-xl mb-1">Fox NOC</div>
+                        <div class="text-xs text-slate-200 mb-2">Inteligência de Rede & Diagnóstico Gemini 2.5</div>
+                        <span class="inline-block bg-black/30 rounded-full px-3 py-1 text-xs text-green-200">Acessar Dashboard</span>
+                    </div>
+                </a>
+            </div>
+
+            <button type="submit" class="w-full py-4 bg-green-600 hover:bg-green-500 rounded-xl font-black uppercase tracking-widest transition-all">Engage Mission</button>
+        </form>
+    </div>
+</body>
+</html>

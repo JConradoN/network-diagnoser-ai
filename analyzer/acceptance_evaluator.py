@@ -134,10 +134,15 @@ class AcceptanceEvaluator:
     @staticmethod
     def _evaluate_ca04(payload: dict[str, Any]) -> dict[str, Any]:
         """CA04: Diagnóstico via Gemini gerado com sucesso."""
-        # Garante que existe conteúdo no diagnóstico AI
-        has_ai = "ai_diagnosis" in payload and payload["ai_diagnosis"] is not None
+        # Garante que existe conteúdo válido no diagnóstico AI
+        ai_diag = payload.get("ai_diagnosis")
+        has_ai = False
+        if isinstance(ai_diag, dict):
+            parsed = ai_diag.get("parsed")
+            if isinstance(parsed, dict) and parsed:
+                has_ai = True
         has_error = "ai_error" in payload or payload.get("ai_diagnosis") == "Não disponível."
-        
+
         return {
             "status": "passed" if has_ai and not has_error else "failed",
             "message": "Diagnóstico via Gemini gerado com sucesso.",

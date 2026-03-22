@@ -27,6 +27,7 @@ from collectors.mikrotik_api import get_wan_status, get_neighbors
 from collectors.mikrotik_dhcp import get_dhcp_details
 from collectors.snmp_metrics import get_mikrotik_health
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -47,157 +48,179 @@ class DiagnosisService:
 
     @staticmethod
     def _clean_vendor(v: Any) -> str:
-        """Garante que vendor seja sempre uma string limpa, removendo tuplas residuais."""
-        if isinstance(v, tuple):
-            return str(v[1]) if len(v) > 1 else str(v[0])
-        return str(v) if v and v != "None" else "-"
+        """Limpa vendor, retorna sempre o nome do fabricante."""
+        import ast
+        if isinstance(v, (list, tuple)) and len(v) > 0:
+            return str(v[-1])
+        if isinstance(v, str):
+            try:
+                parsed = ast.literal_eval(v)
+                if isinstance(parsed, (list, tuple)) and len(parsed) > 0:
+                    return str(parsed[-1])
+            except Exception:
+                pass
+            if v and v != "None":
+                return v
+        return "-"
 
     def consolidate_devices(self, arp_devices: list, dhcp_leases: list, ping_status: dict) -> list:
-        """Une ARP e DHCP priorizando nomes do MikroTik e garantindo limpeza de vendors."""
+        """Une ARP e DHCP priorizando nomes do MikroTik."""
         devices_by_mac = {dev['mac'].lower(): dev for dev in arp_devices}
         consolidated = []
         dhcp_macs = set()
 
         for lease in dhcp_leases:
-            mac = lease.get('mac-address', '').lower()
+            if not isinstance(lease, dict):
+                if isinstance(lease, str) and lease != "error":
+                    consolidated.append({
+                        'ip': lease, 'mac': '', 'hostname': '-', 'vendor': '-',
+                        'status': 'Invisível (DHCP Record)'
+                    })
+                continue
+            
+            mac = (lease.get('mac-address') or "").lower()
             if not mac: continue
             dhcp_macs.add(mac)
             
             arp_dev = devices_by_mac.get(mac)
             ip = lease.get('address', arp_dev['ip'] if arp_dev else '-')
+            if ip == "error": continue
             
-            # Um dispositivo é considerado ATIVO se responder ao ping OU ao ARP
+            if mac.upper().startswith("F4:1E:57"):
+                vendor = "MikroTik/Routerboard"
+            elif mac.upper().startswith("98:2A:0A"):
+                vendor = "Intelbras (Twibi)"
+            else:
+                raw_vendor = arp_dev.get('vendor') if arp_dev else None
+                vendor = self._clean_vendor(raw_vendor)
+            
             ping_ok = ping_status.get(ip, False)
             is_active = (arp_dev is not None) or ping_ok
             
-            # Limpeza rigorosa do vendor
-            raw_vendor = arp_dev.get('vendor') if arp_dev else None
-            vendor = self._clean_vendor(raw_vendor)
-
-            dev = {
-                'ip': ip,
-                'mac': mac,
+            consolidated.append({
+                'ip': ip, 'mac': mac,
                 'hostname': lease.get('host-name') or lease.get('comment') or "-",
                 'vendor': vendor,
                 'status': 'Ativo' if is_active else 'Invisível (DHCP Record)',
-            }
-            consolidated.append(dev)
+            })
 
-        # Adiciona dispositivos manuais/estáticos detectados apenas via ARP
         for mac, dev in devices_by_mac.items():
             if mac not in dhcp_macs:
                 dev_copy = dev.copy()
-                dev_copy['vendor'] = self._clean_vendor(dev_copy.get('vendor'))
-                # Se foi detectado pelo ARPScanner, está obrigatoriamente ativo
+                if mac.upper().startswith("F4:1E:57"):
+                    dev_copy['vendor'] = "MikroTik/Routerboard"
+                elif mac.upper().startswith("98:2A:0A"):
+                    dev_copy['vendor'] = "Intelbras (Twibi)"
+                else:
+                    dev_copy['vendor'] = self._clean_vendor(dev_copy.get('vendor'))
                 dev_copy['status'] = 'Ativo (Manual)'
                 consolidated.append(dev_copy)
-        
-        return consolidated
+
+        # Deduplica por IP: mantém a entrada com mais informação (hostname > '-', status Ativo > Invisível)
+        by_ip: dict = {}
+        for dev in consolidated:
+            ip = dev.get('ip', '')
+            if not ip or ip == '-':
+                continue
+            existing = by_ip.get(ip)
+            if existing is None:
+                by_ip[ip] = dev
+            else:
+                # Prefere entrada com hostname real
+                has_name     = dev.get('hostname', '-') not in ('-', '', None)
+                exists_name  = existing.get('hostname', '-') not in ('-', '', None)
+                # Prefere status Ativo sobre Invisível
+                is_active    = 'Ativo' in dev.get('status', '')
+                exists_active = 'Ativo' in existing.get('status', '')
+                if (has_name and not exists_name) or (is_active and not exists_active):
+                    by_ip[ip] = dev
+
+        return sorted(by_ip.values(), key=lambda d: list(map(int, d['ip'].split('.'))))
 
     async def _execute_pipeline(self) -> dict:
-        """Execução principal assíncrona da pipeline com polimento de visibilidade."""
+        """Execução principal assíncrona da pipeline."""
         gateway_ip = self.config.subnet.split('/')[0].replace('.0', '.1')
-        
-        # 1. Coleta inicial de Leases (Base para o Wake-up call)
-        leases = get_dhcp_details(host=gateway_ip) or []
-        dhcp_ips = [l.get('address') for l in leases if l.get('address')]
+        mikrotik_ip = os.getenv("ND_MIKROTIK_HOST", "192.168.88.1")
 
-        # 2. "Wake-up call" via Ping para popular tabela ARP do Linux
+        logger.info("--- [STAGE] 1/10: Coleta de Leases DHCP ---")
+        leases = get_dhcp_details(host=mikrotik_ip) or []
+        dhcp_ips = [l.get('address') if isinstance(l, dict) else l for l in leases if l]
+
+        logger.info("--- [STAGE] 2/10: Wake-up call (Ping Sweep) ---")
         async def ping_ip(ip):
             proc = await asyncio.create_subprocess_exec(
                 'ping', '-c', '1', '-W', '1', ip,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
             )
             await proc.communicate()
             return ip, proc.returncode == 0
 
+        ping_status = {}
         if dhcp_ips:
-            ping_results = await asyncio.gather(*(ping_ip(ip) for ip in dhcp_ips))
-            ping_status = {ip: success for ip, success in ping_results}
-        else:
-            ping_status = {}
+            results = await asyncio.gather(*(ping_ip(ip) for ip in dhcp_ips if ip and ip != "error"))
+            ping_status = dict(results)
 
-        # Ajuste Crítico: Espera de 3 segundos para garantir que a tabela ARP seja populada
-        # após as respostas dos dispositivos (essencial para o FOX-NOTE)
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
 
-        # 3. Executa ARP Scanner (Agora com maior probabilidade de sucesso)
+        logger.info("--- [STAGE] 3/10: ARP Scanner ---")
         try:
             arp_scanner = ARPScanner(subnet=self.config.subnet, iface=self.config.interface)
             arp_raw = [item.to_dict() for item in arp_scanner.scan()]
         except:
             arp_raw = []
 
-        # 4. Consolidação
         merged_devices = self.consolidate_devices(arp_raw, leases, ping_status)
 
-        # 5. Inicialização do Payload principal
         payload = {
-            "devices": merged_devices,
-            "mikrotik_health": {},
-            "mikrotik_wan_status": [],
-            "mikrotik_neighbors": [],
-            "interface": self.config.interface,
-            "ssdp": [],
-            "mdns": [],
-            "dns": {},
-            "route": {},
+            "devices": merged_devices, "mikrotik_health": {}, "mikrotik_wan_status": [],
+            "mikrotik_neighbors": [], "interface": self.config.interface,
+            "ssdp": [], "mdns": [], "dns": {}, "route": {}, "topology": {}
         }
 
-        # 6. SNMP Health (Temperatura, CPU, Uptime)
+        logger.info("--- [STAGE] 6/10: Coleta SNMP Health + RouterOS API ---")
         if self.config.snmp_enabled:
             try:
-                payload["mikrotik_health"] = await get_mikrotik_health(gateway_ip, community=self.config.snmp_community)
+                payload["mikrotik_health"] = await get_mikrotik_health(mikrotik_ip, community=self.config.snmp_community)
             except Exception as e:
                 payload["mikrotik_health"] = {"error": str(e)}
 
-        # 7. MikroTik API (WAN e Vizinhos)
-        payload["mikrotik_wan_status"] = get_wan_status(host=gateway_ip) or []
-        payload["mikrotik_neighbors"] = get_neighbors(host=gateway_ip) or []
+        # WAN status e neighbors via RouterOS API
+        loop = asyncio.get_running_loop()
+        try:
+            payload["mikrotik_wan_status"] = await loop.run_in_executor(None, get_wan_status)
+        except Exception as e:
+            logger.warning(f"WAN status não disponível: {e}")
+            payload["mikrotik_wan_status"] = []
+        try:
+            payload["mikrotik_neighbors"] = await loop.run_in_executor(None, get_neighbors)
+        except Exception as e:
+            logger.warning(f"Neighbors não disponível: {e}")
+            payload["mikrotik_neighbors"] = []
 
-        # 8. Scanners Adicionais
         payload["ssdp"] = SSDPScanner().discover() if self.config.ssdp_enabled else []
         payload["mdns"] = MDNSScanner().discover() if self.config.mdns_enabled else []
         payload["dns"] = DNSTester().test(self.config.dns_test_domain) if self.config.dns_enabled else {}
         payload["route"] = RouteAnalyzer().analyze(self.config.traceroute_target) if self.config.route_enabled else {}
 
-        # 9. Topologia e PRD Acceptance
-        payload["topology"] = TopologyBuilder().build(
-            devices=merged_devices,
-            ssdp=payload["ssdp"],
-            mdns=payload["mdns"]
-        )
-        
-        # Limpeza final de Vendor em todos os nós da topologia para remover tuplas remanescentes
-        for node in payload["topology"].get("nodes", []):
-            node['vendor'] = self._clean_vendor(node.get('vendor'))
-
+        payload["topology"] = TopologyBuilder().build(merged_devices, payload["ssdp"], payload["mdns"])
         payload["findings"] = ProblemDetector().detect(payload)
         payload["prd_acceptance"] = AcceptanceEvaluator().evaluate(payload, self.config.expected_active_hosts)
 
-        # 10. Diagnóstico AI (Gemini)
+        logger.info("--- [STAGE] 10/10: Análise Gemini AI ---")
         if self.config.gemini_api_key:
+            # Desativado cache para validação de Hot-Reload
+            logger.info("📡 Iniciando requisição real ao Gemini...")
             try:
                 gemini = GeminiAnalyzer(api_key=self.config.gemini_api_key, model=self.config.gemini_model)
                 payload["ai_diagnosis"] = gemini.analyze(payload)
+                logger.info("✅ Gemini retornou dados com sucesso.")
             except Exception as e:
+                logger.error(f"❌ Falha no Gemini: {e}")
                 payload["ai_error"] = str(e)
 
         return payload
 
-    def run(self) -> dict:
-        return asyncio.run(self._execute_pipeline())
-
-    def run_with_metadata(self) -> dict:
-        return ReportGenerator().build(self.run())
-
-    def save_report(self, report: dict, path: str = "network_report.json") -> str:
-        return str(ReportGenerator().save(report, path=path))
-
-    def save_markdown_report(self, report: dict, path: str = "network_report.md") -> str:
-        return str(ReportGenerator().save_markdown(report, path=path))
-
-    @staticmethod
-    def load_report(path: str = "network_report.json") -> dict:
-        return ReportGenerator().load(path=path)
+    async def run(self, interface=None, subnet=None, modules=None):
+        if interface: self.config.interface = interface
+        if subnet: self.config.subnet = subnet
+        return await self._execute_pipeline()
