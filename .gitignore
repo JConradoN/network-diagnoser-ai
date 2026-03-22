@@ -1,3 +1,5 @@
+# Arquivos grandes e pacotes
+*.tar
 # Python
 __pycache__/
 *.py[cod]
