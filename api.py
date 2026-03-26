@@ -25,7 +25,8 @@ from config import load_config
 from scanner.arp_scanner import ARPScanner
 from collectors.snmp_metrics import get_mikrotik_health as _snmp_mikrotik_health
 from collectors.mikrotik_api import get_dhcp_details as _mtk_dhcp, get_wifi_clients as _mtk_wifi
-from collectors.twibi_api import get_mesh_status as _twibi_mesh
+from collectors.twibi_api import get_mesh_status as _twibi_mesh, NODES as _TWIBI_NODES, TWIBI_USER as _TWIBI_USER, TWIBI_PASS as _TWIBI_PASS
+from collectors.wifi_quality import get_wifi_quality as _get_wifi_quality
 
 # --- CONFIGURAÇÃO DE LOG ---
 logging.basicConfig(
@@ -48,6 +49,9 @@ last_snmp_data = {"rx": 0, "tx": 0, "ts": 0}
 # Cache traceroute (TTL 5 min — traceroute é lento)
 _tr_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
 _TR_TTL = 300
+
+# Cache de qualidade WiFi (atualizado a cada 60s pelo background poller)
+_wifi_quality_cache: Dict[str, Any] = {}
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,13 +79,25 @@ class ScanConfig(BaseModel):
 
 @app.get("/system/metrics")
 async def get_system_metrics():
-    """Métricas do node: CPU, temperatura e contagem de dispositivos do último scan."""
+    """Métricas do node fox-dev: CPU, temperatura e contagem de dispositivos do último scan."""
     cpu = psutil.cpu_percent(interval=None)
-    temp = 40
-    if hasattr(psutil, "sensors_temperatures"):
+
+    # Lê temperatura diretamente do thermal zone (mais confiável que psutil neste hardware)
+    temp = None
+    try:
+        raw = open("/sys/class/thermal/thermal_zone0/temp").read().strip()
+        temp = int(raw) / 1000.0
+    except Exception:
+        pass
+    if temp is None and hasattr(psutil, "sensors_temperatures"):
         temps = psutil.sensors_temperatures()
         if temps and 'coretemp' in temps:
             temp = temps['coretemp'][0].current
+
+    mem = psutil.virtual_memory()
+    mem_total_gb = mem.total / (1024 ** 3)
+    mem_used_gb  = mem.used  / (1024 ** 3)
+    mem_pct      = mem.percent
 
     device_count = 0
     try:
@@ -94,8 +110,12 @@ async def get_system_metrics():
     return {
         "cpu": cpu,
         "temp": temp,
-        "temp_status": "NOMINAL" if cpu < 80 else "ALTA CARGA",
-        "devices": device_count
+        "temp_warn":     temp is not None and temp >= 70,
+        "temp_critical": temp is not None and temp >= 75,
+        "mem_total_gb":  round(mem_total_gb, 1),
+        "mem_used_gb":   round(mem_used_gb,  1),
+        "mem_pct":       mem_pct,
+        "devices":       device_count
     }
 
 @app.get("/performance/ping")
@@ -370,7 +390,47 @@ async def get_twibi_mesh():
         logger.error(f"Erro mesh Twibi: {e}")
         return []
 
-# --- 6. TOPOLOGIA LIVE ---
+# --- 6. QUALIDADE WiFi (background poller + endpoint) ---
+
+async def _poll_wifi_quality():
+    """Background task: mede qualidade da rede a cada 60s e salva no banco."""
+    await asyncio.sleep(10)  # aguarda startup
+    while True:
+        try:
+            loop = asyncio.get_event_loop()
+            data = await loop.run_in_executor(None, _get_wifi_quality)
+            _wifi_quality_cache.update(data)
+            s = data.get("summary", {})
+            database.insert_wifi_metric(
+                inet_loss_pct  = s.get("inet_loss_pct"),
+                inet_jitter_ms = s.get("inet_jitter_ms"),
+                inet_avg_ms    = s.get("inet_avg_ms"),
+                gw_avg_ms      = data.get("gateway", {}).get("avg_ms"),
+                dns_ms         = s.get("dns_ms"),
+            )
+        except Exception as e:
+            logger.error(f"WiFi quality poller error: {e}")
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def _startup():
+    asyncio.create_task(_poll_wifi_quality())
+
+
+@app.get("/wifi/quality")
+async def wifi_quality():
+    """Métricas de qualidade da rede: packet loss, jitter, DNS, APs Twibi. Histórico recente."""
+    # Se o cache estiver vazio (primeira requisição antes do poller), executa agora
+    if not _wifi_quality_cache:
+        loop = asyncio.get_event_loop()
+        data = await loop.run_in_executor(None, _get_wifi_quality)
+        _wifi_quality_cache.update(data)
+    history = database.get_wifi_metrics_recent(limit=60)
+    return {**_wifi_quality_cache, "history": history}
+
+
+# --- 6b. TOPOLOGIA LIVE ---
 
 @app.get("/topology/live")
 async def get_topology_live():
@@ -384,13 +444,15 @@ async def get_topology_live():
         if isinstance(report, dict) and "report" in report:
             report = report["report"]
 
-        devices   = report.get("devices", [])
-        neighbors = report.get("mikrotik_neighbors", [])
-        route     = report.get("route", {})
-        ssdp      = report.get("ssdp", [])
-        mk_health = report.get("mikrotik_health", {})
-        mk_wan    = report.get("mikrotik_wan_status", [{}])
-        wan_if    = mk_wan[0] if mk_wan else {}
+        devices    = report.get("devices", [])
+        neighbors  = report.get("mikrotik_neighbors", [])
+        route      = report.get("route", {})
+        ssdp       = report.get("ssdp", [])
+        mk_health  = report.get("mikrotik_health", {})
+        mk_wan     = report.get("mikrotik_wan_status", [{}])
+        wan_if     = mk_wan[0] if mk_wan else {}
+        wifi_mesh  = report.get("wifi_mesh", [])
+        wifi_quality = report.get("wifi_quality", {})
 
         # ── WAN status: qual link está ativo e se há failover ────────────────
         mk_ip = os.getenv("ND_MIKROTIK_HOST", "192.168.88.1")
@@ -460,6 +522,10 @@ async def get_topology_live():
         # ── Twibi IPs conhecidos para marcar nos devices ──────────────────
         twibi_ips = {d["ip"] for d in devices if "Twibi" in d.get("hostname", "") or "twibi" in d.get("hostname","").lower()}
 
+        # ── Cruza wifi_mesh com port_map para enriquecer cada AP ──────────
+        # Monta índice: nome amigável → dados do mesh
+        mesh_by_name = {n.get("name", ""): n for n in wifi_mesh}
+
         # ── Clientes WiFi = devices ativos que NÃO são infra ─────────────
         infra_ips = {
             "192.168.88.1", "192.168.88.250",
@@ -472,11 +538,47 @@ async def get_topology_live():
             and d.get("status") in ("Ativo", "Invisível (DHCP Record)")
         ]
 
+        # ── Enriquece port_map com dados de mesh WiFi ────────────────────
+        for port, info in port_map.items():
+            hostname = (info.get("hostname") or "")
+            mesh_node = None
+            # Tenta match por nome amigável (ex: "Twibi Quintal")
+            for name, node in mesh_by_name.items():
+                if name and name.lower() in hostname.lower():
+                    mesh_node = node
+                    break
+            if mesh_node:
+                info["wifi_mesh"] = {
+                    "mode":             mesh_node.get("mode"),
+                    "uptime":           mesh_node.get("uptime"),
+                    "interference_max": mesh_node.get("interference_max", 0),
+                    "radios":           mesh_node.get("radios", []),
+                }
+
         # ── Monta resposta ────────────────────────────────────────────────
         return {
             "internet": {
                 "label": "Internet",
                 "type":  "internet",
+            },
+            "wan_links": {
+                "vivo": {
+                    "up":         vivo_up,
+                    "ip":         vivo_wan.get("ip"),
+                    "bridge_ok":  vivo_bridge_ok,
+                    "double_nat": vivo_double_nat,
+                    "label":      "Vivo (PPPoE)",
+                    "type":       "isp",
+                },
+                "nio": {
+                    "up":         nio_up,
+                    "ip":         nio_wan.get("ip"),
+                    "double_nat": True,
+                    "label":      "NIO (DHCP)",
+                    "type":       "isp",
+                },
+                "failover_active":   failover_active,
+                "loadbalance_active": vivo_up and nio_up,
             },
             "isp": {
                 "label":           "ISP / Modem",
@@ -504,6 +606,7 @@ async def get_topology_live():
             },
             "ports": port_map,
             "wifi_clients": wifi_clients,
+            "wifi_quality": wifi_quality,
         }
     except Exception as e:
         logger.error(f"Erro topology/live: {e}")
@@ -584,6 +687,37 @@ TOOLS_REGISTRY = [
         "description": "Descobre serviços mDNS/Bonjour na rede",
         "icon": "share-2",
         "params": []
+    },
+    {
+        "id": "bufferbloat",
+        "name": "Bufferbloat Test",
+        "description": "Analisa distribuição de latência (indicador de bufferbloat)",
+        "icon": "bar-chart-2",
+        "params": [
+            {"id": "host", "label": "Host / IP", "type": "text", "default": "8.8.8.8"},
+        ]
+    },
+    {
+        "id": "wifi-channels",
+        "name": "Canais WiFi",
+        "description": "Analisa interferência e recomenda melhores canais nos nós Twibi",
+        "icon": "radio",
+        "params": []
+    },
+    {
+        "id": "set-channel",
+        "name": "Trocar Canal WiFi",
+        "description": "Aplica um canal específico em um nó Twibi (requer reboot para ativar)",
+        "icon": "settings",
+        "params": [
+            {"id": "node",    "label": "Nó",         "type": "select",
+             "options": ["Principal", "C44D", "108B"],
+             "labels":  ["Twibi Principal", "Twibi Quintal", "Twibi Sala"],
+             "default": "Principal"},
+            {"id": "band",    "label": "Frequência",  "type": "select",
+             "options": ["2.4GHz", "5GHz"],           "default": "2.4GHz"},
+            {"id": "channel", "label": "Canal",       "type": "number", "default": "11"},
+        ]
     },
 ]
 
@@ -720,6 +854,231 @@ async def run_tool(tool_id: str, req: ToolRunRequest):
                 for s in services:
                     yield emit("result", f"  {s.get('name','-'):<30} {s.get('type','-')}", s)
                 yield emit("success", f"mDNS discovery concluída — {len(services)} serviços.")
+
+            elif tool_id == "bufferbloat":
+                host = p.get("host", "8.8.8.8")
+                yield emit("info", f"Analisando distribuição de latência para {host}...")
+                yield emit("info", "Executando 80 pings a 0.1s de intervalo (~8s)...")
+
+                def _run_bb():
+                    import re as _re
+                    r = subprocess.run(
+                        ["ping", "-c", "80", "-i", "0.1", "-W", "2", host],
+                        capture_output=True, text=True, timeout=25,
+                    )
+                    rtts = [float(m) for m in _re.findall(r'time=([\d.]+)', r.stdout)]
+                    m2 = _re.search(r'(\d+(?:\.\d+)?)% packet loss', r.stdout)
+                    loss = float(m2.group(1)) if m2 else 0.0
+                    return rtts, loss
+
+                rtts, loss = await loop.run_in_executor(None, _run_bb)
+
+                if not rtts:
+                    yield emit("error", "Nenhuma resposta recebida. Host inacessível.")
+                else:
+                    rtts.sort()
+                    n = len(rtts)
+                    def pct(p): return rtts[min(int(p / 100 * n), n - 1)]
+                    mn = rtts[0]; p50 = pct(50); p95 = pct(95); p99 = pct(99); mx = rtts[-1]
+                    ratio = round(mx / mn, 1) if mn > 0 else 0
+
+                    yield emit("result", f"  Min (base):  {mn:.1f} ms")
+                    yield emit("result", f"  Mediana P50: {p50:.1f} ms")
+                    yield emit("result", f"  Percentil P95: {p95:.1f} ms")
+                    yield emit("result", f"  Percentil P99: {p99:.1f} ms")
+                    yield emit("result", f"  Max (pico):  {mx:.1f} ms")
+                    yield emit("result", f"  Perda:       {loss:.0f}%")
+                    yield emit("result", f"  Pico/Base:   {ratio}x")
+
+                    if ratio > 10:
+                        grade, verdict = "F", "BUFFERBLOAT SEVERO"
+                        tip = "Fila do roteador lotando. Configure QoS/filas no MikroTik (Simple Queues ou mangle+CAKE)."
+                    elif ratio > 5:
+                        grade, verdict = "D", "BUFFERBLOAT ALTO"
+                        tip = "Jogo/ligacao ruim quando alguem baixa algo. Configure fila de prioridade no MikroTik."
+                    elif ratio > 3:
+                        grade, verdict = "C", "BUFFERBLOAT MODERADO"
+                        tip = "Impacto perceptivel em picos. Considere habilitar filas no MikroTik."
+                    elif ratio > 2:
+                        grade, verdict = "B", "BUFFERBLOAT BAIXO"
+                        tip = "Impacto pequeno. Razoavel para uso doméstico."
+                    else:
+                        grade, verdict = "A", "EXCELENTE"
+                        tip = "Sem bufferbloat detectado. Fila do roteador saudável."
+
+                    yield emit("result", f"\n  NOTA: {grade}  —  {verdict}")
+                    lvl = "success" if grade in ("A", "B") else "error" if grade in ("F", "D") else "info"
+                    yield emit(lvl, f"Bufferbloat: {grade} — {tip}")
+
+            elif tool_id == "wifi-channels":
+                yield emit("info", "Consultando canais e interferencia WiFi nos nos Twibi...")
+                nodes = await _twibi_mesh()
+
+                def _bar(score: int, width: int = 20) -> str:
+                    filled = round(score / 100 * width)
+                    return "[" + "#" * filled + "-" * (width - filled) + f"] {score}/100"
+
+                def _recommend_24g(top_interferers: list) -> tuple[int, str]:
+                    """Retorna (canal_recomendado, motivo) para 2.4GHz."""
+                    occ: dict[int, int] = {}  # canal -> sinal mais forte
+                    for ap in top_interferers:
+                        ch  = ap.get("channel", 0)
+                        sig = ap.get("signal", -100)
+                        occ[ch] = max(occ.get(ch, -100), sig)
+                    # Verifica canais nao-sobrepostos: 1, 6, 11
+                    candidates = []
+                    for c in [1, 6, 11]:
+                        # sinal no canal e vizinhos ±3 (para BW 40MHz evita sobreposicao)
+                        worst = max((occ.get(ch, -100) for ch in range(c - 3, c + 4)), default=-100)
+                        candidates.append((c, worst))
+                    # Escolhe o com menor sinal (mais limpo)
+                    best_ch, best_sig = min(candidates, key=lambda x: x[1])
+                    if best_sig < -80:
+                        motivo = f"canal {best_ch} tem apenas vizinhos fracos ({best_sig} dBm)"
+                    elif best_sig < -65:
+                        motivo = f"canal {best_ch} menos congestionado ({best_sig} dBm)"
+                    else:
+                        motivo = f"canal {best_ch} é o menos pior (todos congestionados)"
+                    return best_ch, motivo
+
+                all_recommendations = []
+
+                for node in nodes:
+                    if node.get("error"):
+                        yield emit("error", f"  {node.get('name','?')}: {node['error']}")
+                        continue
+                    name = node.get("alias") or node.get("name", "?")
+                    raw_name = node.get("name", "?")
+                    mode = node.get("mode", "?")
+                    yield emit("info", f"\n┌─ {name}  ({mode})")
+                    for radio in node.get("radios", []):
+                        freq    = radio.get("freq", "?")
+                        ch      = radio.get("channel")
+                        bw      = radio.get("bandwidth", "?")
+                        enabled = radio.get("enabled", True)
+                        intf    = radio.get("interference", {})
+                        score   = intf.get("score", 0)
+                        level   = intf.get("level", "low")
+                        top     = intf.get("top", [])
+                        level_icon = {"low": "OK ", "warning": "AVS", "critical": "!!!"}
+                        yield emit("result",
+                            f"│  {freq:<8} ch {str(ch):<4} {bw:<6}  "
+                            f"Interferencia [{level_icon.get(level,'?')}] {_bar(score)}")
+                        if top:
+                            for ap in top[:3]:
+                                yield emit("info",
+                                    f"│    - {ap['ssid']:<22} ch{ap['channel']:<4} "
+                                    f"{ap['signal']} dBm  (contrib {ap['contrib']})")
+                        if freq == "2.4GHz" and score >= 30:
+                            best_ch, motivo = _recommend_24g(top)
+                            if best_ch != ch:
+                                yield emit("warning",
+                                    f"│  Recomendacao: mudar para canal {best_ch}  ({motivo})")
+                                all_recommendations.append({
+                                    "node": raw_name, "band": "2.4GHz",
+                                    "current": ch, "recommended": best_ch, "reason": motivo
+                                })
+                    yield emit("info", "└" + "─" * 60)
+
+                yield emit("info", "")
+                if all_recommendations:
+                    yield emit("warning", "ACOES RECOMENDADAS:")
+                    for r in all_recommendations:
+                        yield emit("warning",
+                            f"  [{r['node']}] {r['band']}: canal {r['current']} -> canal {r['recommended']}")
+                    yield emit("info", "")
+                    yield emit("info", "Para trocar o canal use a ferramenta 'Trocar Canal WiFi' abaixo.")
+                    yield emit("info", "Apos configurar, reinicie o no pelo app Twibi para ativar a mudanca.")
+                else:
+                    yield emit("success", "Todos os canais com interferencia baixa — nenhuma acao necessaria.")
+                yield emit("success", "Analise de canais concluida.")
+
+            elif tool_id == "set-channel":
+                node_name = p.get("node", "Principal")
+                band      = p.get("band", "2.4GHz")
+                try:
+                    ch_new = int(p.get("channel", "11"))
+                except ValueError:
+                    yield emit("error", "Canal invalido — deve ser um numero inteiro.")
+                    yield emit("done", "")
+                    return
+
+                # Validate channel range
+                if band == "2.4GHz" and ch_new not in range(1, 15):
+                    yield emit("error", "Canal 2.4GHz deve ser entre 1 e 14.")
+                    yield emit("done", "")
+                    return
+                if band == "5GHz" and ch_new not in [36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140,144,149,153,157,161,165]:
+                    yield emit("error", "Canal 5GHz invalido. Valores comuns: 36,40,44,48,149,153,157,161.")
+                    yield emit("done", "")
+                    return
+
+                host = _TWIBI_NODES.get(node_name)
+                if not host:
+                    yield emit("error", f"No '{node_name}' nao encontrado. Use: {list(_TWIBI_NODES.keys())}")
+                    yield emit("done", "")
+                    return
+
+                yield emit("info", f"Conectando a {node_name} ({host})...")
+                import httpx as _httpx
+                async with _httpx.AsyncClient(verify=False, follow_redirects=True) as hc:
+                    # Auth
+                    try:
+                        r = await hc.post(f"http://{host}/api/v1/session",
+                                          json={"username": _TWIBI_USER, "password": _TWIBI_PASS}, timeout=5)
+                        token = r.json().get("token") if r.status_code == 200 else None
+                    except Exception as e:
+                        yield emit("error", f"Falha de autenticacao: {e}")
+                        yield emit("done", "")
+                        return
+                    if not token:
+                        yield emit("error", "Login falhou — verifique TWIBI_USER e TWIBI_PASS no .env")
+                        yield emit("done", "")
+                        return
+
+                    # Get current radio config
+                    r = await hc.get(f"http://{host}/api/v1/radio",
+                                     headers={"Authorization": f"Bearer {token}"}, timeout=5)
+                    radios = r.json() if r.status_code == 200 else []
+                    radio_id = None
+                    radio_obj = None
+                    for rad in radios:
+                        is_24 = rad.get("frequency") == 0
+                        if (band == "2.4GHz" and is_24) or (band == "5GHz" and not is_24):
+                            radio_id  = rad.get("id")
+                            radio_obj = dict(rad)
+                            break
+
+                    if not radio_obj:
+                        yield emit("error", f"Radio {band} nao encontrado em {node_name}.")
+                        yield emit("done", "")
+                        return
+
+                    current_ch = radio_obj.get("channel", "?")
+                    yield emit("info", f"  Radio atual: {radio_id}  canal {current_ch}  -> configurando canal {ch_new}...")
+
+                    # Stage the change
+                    radio_obj["configuredChannel"] = ch_new
+                    radio_obj["channel"]           = ch_new
+                    put_r = await hc.put(
+                        f"http://{host}/api/v1/radio/{radio_id}",
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                        json=radio_obj, timeout=5)
+
+                    if put_r.status_code == 200:
+                        yield emit("success",
+                            f"  Canal {ch_new} configurado em {node_name} {band} (anteriormente: {current_ch}).")
+                        yield emit("warning", "")
+                        yield emit("warning", "IMPORTANTE: A mudanca fica pendente ate o proximo reboot.")
+                        yield emit("warning", f"Para ativar, reinicie o no '{node_name}' pelo app Twibi:")
+                        yield emit("info",   "  1. Abra o app Twibi no celular")
+                        yield emit("info",   f"  2. Selecione o no '{node_name}'")
+                        yield emit("info",   "  3. Toque em Configuracoes > Reiniciar")
+                        yield emit("info",   "  4. O no reiniciara e aplicara o novo canal automaticamente.")
+                        yield emit("info",   "  (tambem funciona desligando e religando o no na tomada)")
+                    else:
+                        err_body = put_r.text[:200]
+                        yield emit("error", f"  Falha ao configurar canal: HTTP {put_r.status_code}  {err_body}")
 
             else:
                 yield emit("error", f"Módulo '{tool_id}' não encontrado.")

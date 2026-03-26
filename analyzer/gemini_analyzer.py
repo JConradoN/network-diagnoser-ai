@@ -43,13 +43,44 @@ class GeminiAnalyzer:
                     "nome": dev.get("hostname"),
                     "vendor": dev.get("vendor")
                 })
-        
+
         # Simplifica a topologia
         compact["topologia"] = [
             {"origem": e.get("from"), "destino": e.get("to")}
             for e in data.get("topology", {}).get("edges", [])
         ]
-        
+
+        # WiFi mesh: interferência por nó e rádio
+        compact["wifi_mesh"] = [
+            {
+                "node": n.get("name"),
+                "mode": n.get("mode"),
+                "uptime": n.get("uptime"),
+                "radios": [
+                    {
+                        "freq": r.get("freq"),
+                        "channel": r.get("channel"),
+                        "bandwidth": r.get("bandwidth"),
+                        "interference": r.get("interference", 0),
+                        "int_level": r.get("int_level", "low"),
+                        "top_interferers": r.get("top_interferers", [])
+                    }
+                    for r in n.get("radios", [])
+                ]
+            }
+            for n in data.get("wifi_mesh", [])
+        ]
+
+        # Qualidade da conexão WiFi/WAN: latência, perda, jitter
+        compact["wifi_quality"] = data.get("wifi_quality", {})
+
+        # Status dos links WAN para análise de redundância
+        wan_status = data.get("mikrotik_wan_status", [])
+        compact["wan_links"] = {
+            "vivo": next((w for w in wan_status if isinstance(w, dict) and w.get("name") == "wan-vivo"), {}),
+            "nio":  next((w for w in wan_status if isinstance(w, dict) and w.get("name") == "wan-nio"), {}),
+        }
+
         return compact
 
     def _build_prompt(self, network_payload: dict[str, Any]) -> str:
@@ -60,11 +91,16 @@ class GeminiAnalyzer:
         print(f"DEBUG: Payload compactado de {len(json.dumps(network_payload))} para {len(pretty_payload)} caracteres.")
 
         return (
-            "Como engenheiro de redes, analise os dados abaixo e retorne APENAS um JSON estruturado:\n"
+            "Como engenheiro de redes sênior, analise os dados abaixo e retorne APENAS um JSON estruturado.\n"
+            "Inclua na análise:\n"
+            "1. Qualidade WiFi: interferência por nó/rádio, canais conflitantes, nível de perda de pacotes e jitter\n"
+            "2. Redundância WAN: status dos links Vivo e NIO, balanceamento de carga, risco de failover\n"
+            "3. Saúde geral da rede: dispositivos ativos, latência, alertas detectados\n\n"
+            "Formato de retorno:\n"
             "{\n"
-            "  \"diagnostico_detalhado\": \"string\",\n"
-            "  \"problemas_identificados\": [],\n"
-            "  \"acoes_recomendadas\": [],\n"
+            "  \"diagnostico_detalhado\": \"string com análise completa\",\n"
+            "  \"problemas_identificados\": [\"problema1\", \"problema2\"],\n"
+            "  \"acoes_recomendadas\": [\"acao1\", \"acao2\"],\n"
             "  \"status_geral\": \"CRÍTICO/ATENÇÃO/ESTÁVEL\"\n"
             "}\n\n"
             f"Dados: {pretty_payload}"

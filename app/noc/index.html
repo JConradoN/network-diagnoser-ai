@@ -135,6 +135,47 @@
         <p class="text-[8px] text-slate-700 mt-1"><span id="kpi-volt" class="text-slate-500">--</span> V</p>
     </div>
 
+    <!-- fox-dev Health -->
+    <div class="glass rounded-xl p-3 col-span-2">
+        <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-2">🖥 fox-dev — Saúde do Servidor</p>
+        <div class="grid grid-cols-3 gap-3">
+            <!-- Temperatura -->
+            <div>
+                <p class="text-[8px] text-slate-500 uppercase tracking-widest mb-1">Temperatura</p>
+                <div class="flex items-baseline gap-1">
+                    <span id="kpi-foxdev-temp" class="text-xl font-bold text-white tabular-nums">--</span>
+                    <span class="text-blue-400 text-[9px]">°C</span>
+                </div>
+                <div class="mt-1 h-1 bg-slate-800 rounded overflow-hidden">
+                    <div id="foxdev-temp-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+                </div>
+            </div>
+            <!-- CPU -->
+            <div>
+                <p class="text-[8px] text-slate-500 uppercase tracking-widest mb-1">CPU</p>
+                <div class="flex items-baseline gap-1">
+                    <span id="kpi-foxdev-cpu" class="text-xl font-bold text-white tabular-nums">--</span>
+                    <span class="text-emerald-400 text-[9px]">%</span>
+                </div>
+                <div class="mt-1 h-1 bg-slate-800 rounded overflow-hidden">
+                    <div id="foxdev-cpu-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+                </div>
+            </div>
+            <!-- Memória -->
+            <div>
+                <p class="text-[8px] text-slate-500 uppercase tracking-widest mb-1">Memória</p>
+                <div class="flex items-baseline gap-1">
+                    <span id="kpi-foxdev-mem" class="text-xl font-bold text-white tabular-nums">--</span>
+                    <span class="text-slate-400 text-[9px]">%</span>
+                </div>
+                <p class="text-[8px] text-slate-600 mt-0.5"><span id="kpi-foxdev-mem-detail" class="text-slate-500">-- / -- GB</span></p>
+                <div class="mt-1 h-1 bg-slate-800 rounded overflow-hidden">
+                    <div id="foxdev-mem-bar" class="h-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Uptime MikroTik -->
     <div class="glass rounded-xl p-3">
         <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-1.5">Uptime Router</p>
@@ -201,6 +242,60 @@
         </div>
     </div>
 
+</div>
+
+<!-- ═══ QUALIDADE DA REDE ════════════════════════════════════════════════ -->
+<div class="glass rounded-2xl p-4 mb-4">
+    <div class="flex justify-between items-center mb-3">
+        <div>
+            <p class="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Qualidade da Rede</p>
+            <p class="text-[8px] text-slate-700 mt-0.5">Packet loss · Jitter · DNS · APs — atualiza a cada 60s</p>
+        </div>
+        <span id="wq-ts" class="text-[8px] text-slate-700">--</span>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+        <!-- Perda de Pacotes WAN -->
+        <div class="bg-slate-900/50 rounded-xl p-3">
+            <p class="text-[7px] font-bold text-slate-600 uppercase tracking-widest mb-1">Perda WAN</p>
+            <div class="flex items-baseline gap-1">
+                <span id="wq-loss" class="text-2xl font-bold text-white tabular-nums">--</span>
+                <span class="text-blue-400 text-[9px]">%</span>
+            </div>
+            <div class="mt-2 h-1 bg-slate-800 rounded overflow-hidden">
+                <div id="wq-loss-bar" class="h-full bg-emerald-500 signal-fill" style="width:0%"></div>
+            </div>
+        </div>
+
+        <!-- Jitter -->
+        <div class="bg-slate-900/50 rounded-xl p-3">
+            <p class="text-[7px] font-bold text-slate-600 uppercase tracking-widest mb-1">Jitter WAN</p>
+            <div class="flex items-baseline gap-1">
+                <span id="wq-jitter" class="text-2xl font-bold text-white tabular-nums">--</span>
+                <span class="text-blue-400 text-[9px]">ms</span>
+            </div>
+            <p id="wq-jitter-label" class="text-[7px] text-emerald-700 mt-1">variação de latência</p>
+        </div>
+
+        <!-- DNS -->
+        <div class="bg-slate-900/50 rounded-xl p-3">
+            <p class="text-[7px] font-bold text-slate-600 uppercase tracking-widest mb-1">DNS Latência</p>
+            <div class="flex items-baseline gap-1">
+                <span id="wq-dns" class="text-2xl font-bold text-white tabular-nums">--</span>
+                <span class="text-blue-400 text-[9px]">ms</span>
+            </div>
+            <p class="text-[7px] text-slate-700 mt-1">8.8.8.8 → google.com</p>
+        </div>
+
+        <!-- APs Twibi -->
+        <div class="bg-slate-900/50 rounded-xl p-3">
+            <p class="text-[7px] font-bold text-slate-600 uppercase tracking-widest mb-2">APs Twibi</p>
+            <div id="wq-aps" class="space-y-1.5">
+                <p class="text-[8px] text-slate-700">--</p>
+            </div>
+        </div>
+
+    </div>
 </div>
 
 <!-- ═══ MIDDLE ROW: Tráfego + WiFi ═══════════════════════════════════════ -->
@@ -954,6 +1049,73 @@ async function updateMikrotik() {
     if (cpu > 85 || (temp != null && temp > 75)) setStatus(false);
 }
 
+// ── Qualidade da Rede (WiFi/WAN) ──────────────────────────────────────────
+async function updateWifiQuality() {
+    const d = await api('/wifi/quality');
+    if (!d) return;
+
+    const sum    = d.summary || {};
+    const loss   = sum.inet_loss_pct   ?? 0;
+    const jitter = sum.inet_jitter_ms  ?? 0;
+    const dns    = d.dns_ms;
+
+    // Perda de pacotes
+    const lossEl = document.getElementById('wq-loss');
+    lossEl.textContent = loss.toFixed(1);
+    setColor(lossEl, loss, 1, 5);
+    const lossBar = document.getElementById('wq-loss-bar');
+    lossBar.style.width = Math.min(loss * 10, 100) + '%';
+    lossBar.className = `h-full signal-fill ${barColor(loss, 1, 5)}`;
+
+    // Jitter
+    const jitterEl = document.getElementById('wq-jitter');
+    jitterEl.textContent = jitter.toFixed(1);
+    setColor(jitterEl, jitter, 15, 40);
+    const jLabel   = document.getElementById('wq-jitter-label');
+    const jGrade   = sum.jitter_grade || 'good';
+    jLabel.textContent = jGrade === 'critical' ? 'CRITICO — ligacoes caem'
+                       : jGrade === 'warning'  ? 'ELEVADO — monitor'
+                       : 'Normal';
+    jLabel.className = 'text-[7px] mt-1 ' + (
+        jGrade === 'critical' ? 'text-red-500' :
+        jGrade === 'warning'  ? 'text-yellow-500' : 'text-emerald-700');
+
+    // DNS
+    const dnsEl = document.getElementById('wq-dns');
+    dnsEl.textContent = dns != null ? Math.round(dns) : '--';
+    if (dns != null) setColor(dnsEl, dns, 100, 250);
+
+    // APs Twibi
+    const apsEl = document.getElementById('wq-aps');
+    const nodes = d.twibi_nodes || [];
+    apsEl.innerHTML = nodes.map(n => {
+        const ok  = n.reachable;
+        const lat = n.avg_ms != null ? `${n.avg_ms.toFixed(1)}ms` : '--';
+        const col = ok ? 'text-slate-400' : 'text-red-500';
+        const sub = ok ? 'text-slate-600' : 'text-red-700';
+        return `<div class="flex items-center justify-between">
+            <span class="text-[8px] font-bold ${col}">${n.name}</span>
+            <span class="text-[7px] ${sub}">${ok ? lat : 'OFFLINE'}</span>
+        </div>`;
+    }).join('');
+
+    // Timestamp
+    const ts = document.getElementById('wq-ts');
+    ts.textContent = d.timestamp ? new Date(d.timestamp * 1000).toLocaleTimeString('pt-BR') : '--';
+
+    // Propaga alertas
+    const alertIds = new Set((d.alerts || []).map(a => a.id));
+    for (const a of (d.alerts || [])) {
+        alertManager.set(a.id, a.level, a.title, a.message);
+    }
+    ['inet-loss', 'inet-jitter', 'dns-slow'].forEach(id => {
+        if (!alertIds.has(id)) alertManager.clear(id);
+    });
+    for (const n of nodes) {
+        if (n.reachable) alertManager.clear(`ap-down-${n.name}`);
+    }
+}
+
 // ── Tráfego ───────────────────────────────────────────────────────────────
 async function updateTraffic() {
     const d = await api('/network/traffic');
@@ -1010,13 +1172,21 @@ async function updateTopology() {
 
     // ── Alertas de WAN / Failover ─────────────────────────────────────
     const isp = d.isp || {};
-    if (isp.failover_active) {
+    const _wl = d.wan_links || {};
+    if (_wl.failover_active) {
         alertManager.set('wan-failover', 'critical', '⚡ Failover Ativo — Link Vivo Indisponível',
             'Tráfego roteado via NIO (link de backup). NAT duplo ativo — VoIP, jogos online e acesso remoto podem ser afetados.');
         alertManager.set('double-nat', 'warning', 'NAT Duplo (NIO)',
             'Link NIO faz NAT mesmo em DMZ. Impacto: jogos online, chamadas WhatsApp, UPnP. Normaliza quando Vivo retornar.');
+        alertManager.clear('lb-active');
+    } else if (_wl.loadbalance_active) {
+        alertManager.clear('wan-failover');
+        alertManager.clear('double-nat');
+        alertManager.set('lb-active', 'info', '⇄ Load Balance Ativo — Vivo + NIO',
+            'Ambos os links WAN estão ativos. Tráfego distribuído por PCC. NIO em double NAT — pode impactar VoIP e jogos.');
     } else {
         alertManager.clear('wan-failover');
+        alertManager.clear('lb-active');
         if (!isp.double_nat) alertManager.clear('double-nat');
     }
     if (isp.vivo_up === false && isp.nio_up === false) {
@@ -1037,15 +1207,21 @@ async function updateTopology() {
     const W     = svg.parentElement.clientWidth || 700;
     const ports = Object.values(d.ports || {}).sort((a,b) => a.port.localeCompare(b.port));
     const clients = d.wifi_clients || [];
+    const wl    = d.wan_links || {};
+    const vivo  = wl.vivo  || {};
+    const nio   = wl.nio   || {};
 
     // ── Paleta ─────────────────────────────────────────────────────────
     const C = {
-        internet: { fill:'#0f172a', stroke:'#6366f1', text:'#a5b4fc', icon:'🌐' },
-        router:   { fill:'#0f172a', stroke:'#10b981', text:'#34d399', icon:'⬡'  },
-        warn:     { fill:'#0f172a', stroke:'#f59e0b', text:'#fbbf24', icon:'⚠'  },
-        ap:       { fill:'#0f172a', stroke:'#3b82f6', text:'#93c5fd', icon:'⬡'  },
-        client:   { fill:'#0c1628', stroke:'#334155', text:'#64748b', icon:'◌'  },
-        inactive: { fill:'#0c1628', stroke:'#1e293b', text:'#475569', icon:'◌'  },
+        internet: { fill:'#0f172a', stroke:'#6366f1', text:'#a5b4fc' },
+        router:   { fill:'#0f172a', stroke:'#10b981', text:'#34d399' },
+        warn:     { fill:'#0f172a', stroke:'#f59e0b', text:'#fbbf24' },
+        down:     { fill:'#0c1628', stroke:'#ef4444', text:'#f87171' },
+        ap:       { fill:'#0f172a', stroke:'#3b82f6', text:'#93c5fd' },
+        ap_warn:  { fill:'#0f172a', stroke:'#f59e0b', text:'#fbbf24' },
+        ap_crit:  { fill:'#0f172a', stroke:'#ef4444', text:'#f87171' },
+        client:   { fill:'#0c1628', stroke:'#334155', text:'#64748b' },
+        inactive: { fill:'#0c1628', stroke:'#1e293b', text:'#475569' },
     };
 
     // ── Nó SVG ─────────────────────────────────────────────────────────
@@ -1064,12 +1240,13 @@ async function updateTopology() {
     }
 
     // ── Linha com label de porta ────────────────────────────────────────
-    function link(x1,y1,x2,y2, portLabel='', warn=false) {
+    function link(x1,y1,x2,y2, portLabel='', warn=false, dead=false) {
         const mx = (x1+x2)/2, my = (y1+y2)/2;
-        const col = warn ? '#f59e0b' : '#1e3a2e';
+        const col = dead ? '#ef444466' : warn ? '#f59e0b' : '#1e3a2e';
+        const dash = dead ? '3 4' : warn ? '4 3' : '0';
         return `
         <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
-              stroke="${col}" stroke-width="1.5" stroke-dasharray="${warn?'4 3':'0'}"/>
+              stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}"/>
         ${portLabel ? `<rect x="${mx-18}" y="${my-8}" width="36" height="14" rx="4" fill="#020617" stroke="${col}" stroke-width="1"/>
         <text x="${mx}" y="${my+4}" text-anchor="middle"
               font-family="JetBrains Mono,monospace" font-size="7" font-weight="700"
@@ -1079,12 +1256,17 @@ async function updateTopology() {
     // ── Layout ─────────────────────────────────────────────────────────
     const NW = 140, NH = 44;
     const CW = 120, CH = 36;
-    const SLOT_W = CW + 20;   // 140px por slot — sem sobreposição
-    const SLOT_H = CH + 28;   // 64px por linha de clientes
+    const SLOT_W = CW + 20;
+    const SLOT_H = CH + 28;
     const cx = W / 2;
 
+    // Dual-WAN: Vivo à esquerda, NIO à direita
+    const wanGap = Math.min(160, W * 0.22);
+    const vivoX  = cx - wanGap;
+    const nioX   = cx + wanGap;
+
     // Eixos Y por camada
-    const Y = { internet:40, isp:120, mikrotik:210, ap:310, client:420 };
+    const Y = { internet:40, wan:130, mikrotik:230, ap:340, client:460 };
 
     // Quantos APs
     const apCount  = Math.max(ports.length, 1);
@@ -1092,15 +1274,14 @@ async function updateTopology() {
     const apXs     = apCount === 1 ? [cx]
         : ports.map((_,i) => cx - apSpread/2 + i * apSpread/(apCount-1));
 
-    // Clientes distribuídos por AP (sem saber qual AP → divide igualmente)
+    // Clientes distribuídos por AP
     const active   = clients.filter(c => c.status === 'Ativo');
     const inactive = clients.filter(c => c.status !== 'Ativo');
     const allClients = [...active, ...inactive];
     const perAp = apCount > 0 ? Math.ceil(allClients.length / apCount) : allClients.length;
 
-    // Quantas colunas cabem na largura disponível
-    const maxCols  = Math.max(1, Math.floor((W - 20) / SLOT_W));
-    const numRows  = allClients.length > 0 ? Math.ceil(allClients.length / maxCols) : 0;
+    const maxCols = Math.max(1, Math.floor((W - 20) / SLOT_W));
+    const numRows = allClients.length > 0 ? Math.ceil(allClients.length / maxCols) : 0;
 
     const svgH = numRows > 0
         ? Y.client + numRows * SLOT_H + 20
@@ -1110,40 +1291,68 @@ async function updateTopology() {
 
     let html = '';
 
-    // Internet
-    html += link(cx, Y.internet + NH/2, cx, Y.isp - NH/2);
-    html += node(cx, Y.internet, NW, NH, '🌐  Internet', 'WAN Uplink',
-                 C.internet);
+    // Internet (centro, topo)
+    html += node(cx, Y.internet, NW, NH, '🌐  Internet', 'WAN Uplink', C.internet);
 
-    // ISP / Modem
-    const ispColor = isp.failover_active ? C.warn : (isp.double_nat ? C.warn : C.router);
-    const ispLabel = isp.failover_active
-        ? `⚡ FAILOVER — ${isp.vendor || 'NIO'}`
-        : `${isp.double_nat ? '⚠ ' : ''}ISP — ${isp.vendor || 'Vivo'}`;
-    const ispBadge = isp.failover_active
-        ? `<rect x="${cx-50}" y="${Y.isp-28}" width="100" height="13" rx="4" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
-           <text x="${cx}" y="${Y.isp-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fca5a5">VIVO OFFLINE · BACKUP ATIVO</text>`
-        : (isp.double_nat
-            ? `<rect x="${cx+36}" y="${Y.isp-28}" width="46" height="13" rx="4" fill="#78350f" stroke="#f59e0b" stroke-width="1"/>
-               <text x="${cx+59}" y="${Y.isp-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fbbf24">DOUBLE NAT</text>`
-            : '');
-    html += link(cx, Y.isp + NH/2, cx, Y.mikrotik - NH/2, '', isp.failover_active || isp.double_nat);
-    html += node(cx, Y.isp, NW, NH, ispLabel, isp.ip || '--', ispColor, ispBadge);
+    // ── Nós WAN: Vivo + NIO ───────────────────────────────────────────
+    // Vivo
+    const vivoUp    = vivo.up === true;
+    const vivoColor = vivoUp ? (vivo.double_nat ? C.warn : C.router) : C.down;
+    const vivoLabel = vivoUp ? '✓ Vivo (PPPoE)' : '✗ Vivo (PPPoE)';
+    const vivoSub   = vivo.ip || (vivoUp ? 'IP real' : 'offline');
+    const vivoBadge = vivo.double_nat
+        ? `<rect x="${vivoX+24}" y="${Y.wan-28}" width="52" height="13" rx="4" fill="#78350f" stroke="#f59e0b" stroke-width="1"/>
+           <text x="${vivoX+50}" y="${Y.wan-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fbbf24">DOUBLE NAT</text>`
+        : '';
+    html += link(cx, Y.internet + NH/2, vivoX, Y.wan - NH/2, '', !vivoUp, !vivoUp);
+    html += node(vivoX, Y.wan, NW, NH, vivoLabel, vivoSub, vivoColor, vivoBadge);
+
+    // NIO
+    const nioUp    = nio.up === true;
+    const nioColor = nioUp ? C.warn : C.down;   // sempre warn: sempre double NAT
+    const nioLabel = nioUp ? '✓ NIO (DHCP)' : '✗ NIO (DHCP)';
+    const nioSub   = nio.ip || (nioUp ? 'via 192.168.100.1' : 'offline');
+    const nioBadge = `<rect x="${nioX+24}" y="${Y.wan-28}" width="52" height="13" rx="4" fill="#78350f" stroke="#f59e0b" stroke-width="1"/>
+           <text x="${nioX+50}" y="${Y.wan-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fbbf24">DOUBLE NAT</text>`;
+    html += link(cx, Y.internet + NH/2, nioX, Y.wan - NH/2, '', !nioUp, !nioUp);
+    html += node(nioX, Y.wan, NW, NH, nioLabel, nioSub, nioColor, nioBadge);
+
+    // WAN → MikroTik
+    html += link(vivoX, Y.wan + NH/2, cx, Y.mikrotik - NH/2, 'wan-vivo', !vivoUp, !vivoUp);
+    html += link(nioX,  Y.wan + NH/2, cx, Y.mikrotik - NH/2, 'wan-nio',  !nioUp,  !nioUp);
 
     // MikroTik
+    const lbActive = wl.loadbalance_active;
+    const failover = wl.failover_active;
     const mkSub = [
         d.mikrotik?.ip,
         d.mikrotik?.cpu != null ? `CPU ${d.mikrotik.cpu}%` : null,
         d.mikrotik?.temp != null ? `${d.mikrotik.temp}°C` : null,
     ].filter(Boolean).join('  ·  ');
-    html += node(cx, Y.mikrotik, NW+20, NH, '⬡  MikroTik', mkSub, C.router);
+    const mkBadge = lbActive
+        ? `<rect x="${cx-52}" y="${Y.mikrotik-28}" width="104" height="13" rx="4" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+           <text x="${cx}" y="${Y.mikrotik-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#34d399">⇄ LOAD BALANCE ATIVO</text>`
+        : failover
+        ? `<rect x="${cx-54}" y="${Y.mikrotik-28}" width="108" height="13" rx="4" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+           <text x="${cx}" y="${Y.mikrotik-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="#fca5a5">⚡ FAILOVER NIO ATIVO</text>`
+        : '';
+    html += node(cx, Y.mikrotik, NW+20, NH, '⬡  MikroTik', mkSub, C.router, mkBadge);
 
-    // Portas → APs
+    // Portas → APs (com badge de interferência)
     ports.forEach((p, i) => {
         const ax = apXs[i];
         html += link(cx, Y.mikrotik + NH/2, ax, Y.ap - NH/2, p.port);
-        const apLabel = p.hostname?.replace('Twibi_Force_AX_','').replace('Twibi Force AX','') || p.port;
-        html += node(ax, Y.ap, CW+10, NH, `⬡  ${apLabel}`, p.ip || '--', C.ap);
+        const apLabel = (p.hostname || p.port)
+            .replace('Twibi_Force_AX_','').replace('Twibi Force AX','').replace('Twibi ','');
+        const mesh  = p.wifi_mesh || {};
+        const score = mesh.interference_max || 0;
+        const apColor = score >= 60 ? C.ap_crit : score >= 30 ? C.ap_warn : C.ap;
+        const intfCol = score >= 60 ? '#ef4444' : score >= 30 ? '#f59e0b' : '#10b981';
+        const intfBadge = score > 0
+            ? `<rect x="${ax+28}" y="${Y.ap-28}" width="42" height="13" rx="4" fill="#0f172a" stroke="${intfCol}" stroke-width="1"/>
+               <text x="${ax+49}" y="${Y.ap-19}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" font-weight="800" fill="${intfCol}">INT ${score}%</text>`
+            : '';
+        html += node(ax, Y.ap, CW+10, NH, `⬡  ${apLabel}`, p.ip || '--', apColor, intfBadge);
     });
 
     // Fallback se não há neighbors
@@ -1187,48 +1396,108 @@ async function updateMesh() {
     const nodes = await api('/twibi/mesh');
     if (!Array.isArray(nodes) || nodes.length === 0) return;
 
-    // Firmware badge (usa o primeiro nó)
     const fw = nodes[0]?.fw_version;
     const hasFwUpdate = nodes.some(n => n.firmware_update);
     const fwEl = document.getElementById('mesh-fw');
     fwEl.textContent = fw ? `fw ${fw}` : '--';
-    if (hasFwUpdate) fwEl.classList.add('text-yellow-600');
+    if (hasFwUpdate) fwEl.classList.replace('text-slate-700', 'text-yellow-600');
+
+    // ── helpers ──────────────────────────────────────────────────────
+    function intfColor(score) {
+        return score >= 60 ? '#ef4444' : score >= 30 ? '#f59e0b' : '#10b981';
+    }
+    function intfLabel(score) {
+        return score >= 60 ? 'Alta' : score >= 30 ? 'Média' : 'Baixa';
+    }
+    function rssiColor(dbm) {
+        return dbm >= -65 ? '#10b981' : dbm >= -75 ? '#34d399' : dbm >= -85 ? '#f59e0b' : '#ef4444';
+    }
+    function rssiLabel(dbm) {
+        return dbm >= -65 ? 'Excelente' : dbm >= -75 ? 'Bom' : dbm >= -85 ? 'Regular' : 'Fraco';
+    }
+
+    function radioBlock(r, nodeName) {
+        if (!r) return '';
+        const intf  = r.interference || {};
+        const score = intf.score || 0;
+        const pct   = Math.min(score, 100);
+        const col   = intfColor(score);
+        const bh    = r.backhaul || [];
+
+        const techBadges = [
+            r.wifi6  ? `<span class="text-[6px] font-black text-blue-400 border border-blue-500/30 px-1 py-0.5 rounded">WiFi6</span>` : '',
+            r.mu_mimo ? `<span class="text-[6px] text-slate-600 border border-slate-700/50 px-1 py-0.5 rounded">MU-MIMO</span>` : '',
+            r.ofdma   ? `<span class="text-[6px] text-slate-600 border border-slate-700/50 px-1 py-0.5 rounded">OFDMA</span>` : '',
+        ].filter(Boolean).join('');
+
+        // Top interferers (externos)
+        const topIntf = (intf.top || []).slice(0, 2).map(a =>
+            `<div class="flex justify-between items-center">
+                <span class="text-[7px] text-slate-600 truncate max-w-[110px]">${a.ssid}</span>
+                <span class="text-[7px] text-slate-700">ch${a.channel} · <span style="color:${rssiColor(a.signal)}">${a.signal}dBm</span></span>
+             </div>`
+        ).join('');
+
+        return `
+        <div class="border-t border-slate-800/40 pt-2 mt-2">
+            <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[8px] font-bold text-slate-400">${r.freq}</span>
+                    <span class="text-[7px] text-slate-700">ch${r.channel} · ${r.bandwidth}</span>
+                    ${techBadges}
+                </div>
+                <span class="text-[7px] font-bold" style="color:${col}">${intfLabel(score)}</span>
+            </div>
+            <div class="flex items-center gap-2 mb-1">
+                <div class="flex-1 h-1 bg-slate-800 rounded overflow-hidden">
+                    <div class="h-full rounded signal-fill" style="width:${pct}%;background:${col}"></div>
+                </div>
+                <span class="text-[7px] text-slate-700 tabular-nums w-12 text-right">${intf.count||0} vizinhos</span>
+            </div>
+            ${topIntf ? `<div class="space-y-0.5">${topIntf}</div>` : ''}
+        </div>`;
+    }
 
     const container = document.getElementById('mesh-nodes');
     container.innerHTML = nodes.map(node => {
-        const online = node.has_internet && !node.error;
-        const statusColor = online ? 'bg-emerald-500' : 'bg-red-500';
+        const online     = node.has_internet && !node.error;
+        const dotColor   = online ? 'bg-emerald-500' : 'bg-red-500';
+        const modeColor  = node.mode === 'Router' ? 'text-emerald-500' : 'text-blue-400';
         const r24 = node.radios?.find(r => r.freq === '2.4GHz');
         const r5  = node.radios?.find(r => r.freq === '5GHz');
-        const modeColor = node.mode === 'Router' ? 'text-emerald-500' : 'text-blue-400';
+        const maxScore = node.interference_max || 0;
+        const borderCol = maxScore >= 60 ? 'border-red-500/20' : maxScore >= 30 ? 'border-yellow-500/20' : 'border-emerald-500/10';
 
-        const radioRow = (r) => r ? `
-            <div class="flex justify-between items-center">
-                <span class="text-[8px] text-slate-600">${r.freq}</span>
-                <span class="text-[8px] text-slate-400">ch${r.channel} · ${r.bandwidth}</span>
-                <div class="flex gap-1">
-                    ${r.wifi6  ? '<span class="text-[7px] font-bold text-blue-500 border border-blue-500/30 px-1 rounded">WiFi6</span>' : ''}
-                    ${r.mu_mimo ? '<span class="text-[7px] text-slate-600">MU</span>' : ''}
-                    ${r.ofdma  ? '<span class="text-[7px] text-slate-600">OFDMA</span>' : ''}
-                </div>
-            </div>` : '';
+        // Alertas de interferência
+        if (maxScore >= 60)
+            alertManager.set(`mesh-intf-${node.name}`, 'critical',
+                `Interferência WiFi Alta: ${node.alias || node.name}`,
+                `Score ${maxScore}/100 — APs vizinhos causando degradação. Considere trocar o canal no app Twibi.`);
+        else if (maxScore >= 30)
+            alertManager.set(`mesh-intf-${node.name}`, 'warning',
+                `Interferência WiFi Média: ${node.alias || node.name}`,
+                `Score ${maxScore}/100 — monitorando.`);
+        else
+            alertManager.clear(`mesh-intf-${node.name}`);
+
+        // Backhaul é cabeado (1Gbps Ethernet) — sem alertas de sinal wireless entre APs
+        alertManager.clear(`mesh-bh-${node.name}-2.4GHz`);
+        alertManager.clear(`mesh-bh-${node.name}-5GHz`);
 
         return `
-        <div class="glass rounded-xl p-3 fade-in">
-            <div class="flex items-center justify-between mb-2">
+        <div class="bg-slate-900/60 border ${borderCol} rounded-xl p-3 fade-in">
+            <div class="flex items-center justify-between mb-1">
                 <div class="flex items-center gap-2">
-                    <div class="w-1.5 h-1.5 rounded-full ${statusColor}"></div>
-                    <span class="text-[10px] font-bold text-white truncate max-w-[110px]">${node.alias || node.name}</span>
+                    <div class="w-1.5 h-1.5 rounded-full ${dotColor}"></div>
+                    <span class="text-[10px] font-bold text-white">${node.alias || node.name}</span>
                 </div>
-                <span class="text-[8px] font-bold ${modeColor}">${node.mode || '--'}</span>
+                <span class="text-[7px] font-bold ${modeColor}">${node.mode || '--'}</span>
             </div>
-            <p class="text-[8px] text-slate-600 mb-2">up <span class="text-slate-400">${node.uptime_str || '--'}</span> · <span class="text-slate-700">${node.host}</span></p>
-            <div class="space-y-1 border-t border-slate-800/60 pt-2">
-                ${radioRow(r24)}
-                ${radioRow(r5)}
-            </div>
-            ${node.firmware_update ? '<p class="text-[8px] text-yellow-500 mt-2">⚠ Atualização disponível</p>' : ''}
-            ${node.error ? `<p class="text-[8px] text-red-500 mt-1">${node.error}</p>` : ''}
+            <p class="text-[7px] text-slate-700 mb-1">up ${node.uptime_str || '--'} · ${node.host} · <span class="text-emerald-900">⬛ cabeado</span></p>
+            ${radioBlock(r24, node.name)}
+            ${radioBlock(r5,  node.name)}
+            ${node.firmware_update ? '<p class="text-[7px] text-yellow-500 mt-2">⚠ Atualização de firmware disponível</p>' : ''}
+            ${node.error ? `<p class="text-[7px] text-red-500 mt-1">${node.error}</p>` : ''}
         </div>`;
     }).join('');
 }
@@ -1683,6 +1952,75 @@ async function launchScan() {
     }, 600_000);
 }
 
+// ── fox-dev System Metrics ────────────────────────────────────────────────
+async function updateFoxDevMetrics() {
+    try {
+        const d = await api('/system/metrics');
+
+        // Temperatura
+        const tempEl  = document.getElementById('kpi-foxdev-temp');
+        const tempBar = document.getElementById('foxdev-temp-bar');
+        if (d.temp != null) {
+            tempEl.textContent = d.temp.toFixed(1);
+            const tempPct = Math.min(d.temp / 100 * 100, 100);
+            tempBar.style.width = tempPct + '%';
+            if (d.temp_critical) {
+                tempEl.className = 'text-xl font-bold tabular-nums text-red-400';
+                tempBar.className = 'h-full bg-red-500 transition-all duration-500';
+            } else if (d.temp_warn) {
+                tempEl.className = 'text-xl font-bold tabular-nums text-yellow-400';
+                tempBar.className = 'h-full bg-yellow-500 transition-all duration-500';
+            } else {
+                tempEl.className = 'text-xl font-bold tabular-nums text-white';
+                tempBar.className = 'h-full bg-emerald-500 transition-all duration-500';
+            }
+        }
+
+        // CPU
+        const cpuEl  = document.getElementById('kpi-foxdev-cpu');
+        const cpuBar = document.getElementById('foxdev-cpu-bar');
+        if (d.cpu != null) {
+            cpuEl.textContent = d.cpu.toFixed(0);
+            cpuBar.style.width = Math.min(d.cpu, 100) + '%';
+            cpuBar.className = `h-full transition-all duration-500 ${d.cpu > 85 ? 'bg-red-500' : d.cpu > 60 ? 'bg-yellow-500' : 'bg-emerald-500'}`;
+        }
+
+        // Memória
+        const memEl     = document.getElementById('kpi-foxdev-mem');
+        const memDetail = document.getElementById('kpi-foxdev-mem-detail');
+        const memBar    = document.getElementById('foxdev-mem-bar');
+        if (d.mem_pct != null) {
+            memEl.textContent = d.mem_pct.toFixed(0);
+            memDetail.textContent = `${d.mem_used_gb.toFixed(1)} / ${d.mem_total_gb.toFixed(1)} GB`;
+            memBar.style.width = Math.min(d.mem_pct, 100) + '%';
+            memBar.className = `h-full transition-all duration-500 ${d.mem_pct > 85 ? 'bg-red-500' : d.mem_pct > 70 ? 'bg-yellow-500' : 'bg-emerald-500'}`;
+        }
+
+        // Alertas temperatura
+        if (d.temp_critical)
+            alertManager.set('foxdev-temp', 'critical', 'Temperatura Crítica fox-dev',
+                `${d.temp.toFixed(1)}°C — cooler pode estar falhando, risco de shutdown`);
+        else if (d.temp_warn)
+            alertManager.set('foxdev-temp', 'warning', 'Temperatura Elevada fox-dev',
+                `${d.temp.toFixed(1)}°C — verifique ventilação`);
+        else
+            alertManager.clear('foxdev-temp');
+
+        // Alerta CPU
+        if (d.cpu > 85)
+            alertManager.set('foxdev-cpu', 'warning', 'CPU fox-dev Elevada', `${d.cpu.toFixed(0)}%`);
+        else
+            alertManager.clear('foxdev-cpu');
+
+        // Alerta memória
+        if (d.mem_pct > 90)
+            alertManager.set('foxdev-mem', 'warning', 'Memória fox-dev Crítica', `${d.mem_pct.toFixed(0)}% em uso (${d.mem_used_gb.toFixed(1)}/${d.mem_total_gb.toFixed(1)} GB)`);
+        else
+            alertManager.clear('foxdev-mem');
+
+    } catch(e) {}
+}
+
 // ── AI Toggle ─────────────────────────────────────────────────────────────
 function toggleAI() {
     const panel = document.getElementById('ai-panel');
@@ -1694,14 +2032,16 @@ function toggleAI() {
 // ── Polling ───────────────────────────────────────────────────────────────
 (async () => {
     // Carga inicial
-    await Promise.all([updatePing(), updateMikrotik(), updateTraffic(), updateWifi(), updateMesh(), updateTopology(), updateDashboard(), updateTraceroute()]);
+    await Promise.all([updatePing(), updateMikrotik(), updateTraffic(), updateWifi(), updateMesh(), updateTopology(), updateDashboard(), updateTraceroute(), updateWifiQuality(), updateFoxDevMetrics()]);
 
     // Intervalos
-    setInterval(updatePing,      5_000);
-    setInterval(updateTraffic,   5_000);
-    setInterval(updateMikrotik, 10_000);
-    setInterval(updateWifi,     15_000);
-    setInterval(updateMesh,     30_000);
+    setInterval(updatePing,          5_000);
+    setInterval(updateTraffic,       5_000);
+    setInterval(updateMikrotik,     10_000);
+    setInterval(updateWifi,         15_000);
+    setInterval(updateFoxDevMetrics, 15_000);
+    setInterval(updateMesh,         30_000);
+    setInterval(updateWifiQuality,  60_000);
     setInterval(updateTopology,   3_600_000); // 1 hora
     setInterval(updateTraceroute,   300_000); // 5 min
     setInterval(updateDashboard,30_000);

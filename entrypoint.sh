@@ -49,6 +49,7 @@ fi
 # Otimização: monitora apenas pastas de código para reload
 exec /app/venv_k3s/bin/python3 -m uvicorn api:app \
     --host 0.0.0.0 --port 80 --reload \
+    --reload-dir /app \
     --reload-dir /app/analyzer \
     --reload-dir /app/services \
     --reload-dir /app/utils \

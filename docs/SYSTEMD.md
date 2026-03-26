@@ -1,3 +1,4 @@
+
 # Exemplo de Serviço systemd para Network Diagnoser AI
 
 Crie o arquivo `/etc/systemd/system/network-diagnoser.service` com o conteúdo:
@@ -17,6 +18,10 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
+
+
+## Observação
+O serviço irá monitorar continuamente a qualidade da rede (packet loss, jitter, DNS, APs Twibi) e WiFi mesh, salvando histórico no banco e atualizando o dashboard automaticamente.
 
 ## Comandos úteis
 

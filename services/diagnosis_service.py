@@ -26,6 +26,8 @@ from scanner.ssdp_scanner import SSDPScanner
 from collectors.mikrotik_api import get_wan_status, get_neighbors
 from collectors.mikrotik_dhcp import get_dhcp_details
 from collectors.snmp_metrics import get_mikrotik_health
+from collectors.twibi_api import get_mesh_status as _get_mesh_status
+from collectors.wifi_quality import get_wifi_quality as _get_wifi_quality
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -206,12 +208,68 @@ class DiagnosisService:
         payload["findings"] = ProblemDetector().detect(payload)
         payload["prd_acceptance"] = AcceptanceEvaluator().evaluate(payload, self.config.expected_active_hosts)
 
+        logger.info("--- [STAGE] WiFi: Mesh Twibi + Qualidade ---")
+        try:
+            mesh_nodes = await _get_mesh_status()
+            payload["wifi_mesh"] = [
+                {
+                    "name":           n.get("alias", n.get("name")),
+                    "mode":           n.get("mode"),
+                    "uptime":         n.get("uptime_str"),
+                    "interference_max": n.get("interference_max", 0),
+                    "radios": [
+                        {
+                            "freq":        r.get("freq"),
+                            "channel":     r.get("channel"),
+                            "bandwidth":   r.get("bandwidth"),
+                            "interference": r.get("interference", {}).get("score", 0),
+                            "int_level":   r.get("interference", {}).get("level", "low"),
+                            "top_interferers": [
+                                {"ssid": a.get("ssid"), "channel": a.get("channel"), "signal": a.get("signal")}
+                                for a in (r.get("interference", {}).get("top", []))[:3]
+                            ],
+                        }
+                        for r in n.get("radios", [])
+                    ],
+                }
+                for n in mesh_nodes if not n.get("error")
+            ]
+        except Exception as e:
+            logger.warning(f"WiFi mesh indisponível: {e}")
+            payload["wifi_mesh"] = []
+
+        try:
+            wq = await loop.run_in_executor(None, _get_wifi_quality)
+            payload["wifi_quality"] = {
+                "inet_loss_pct":  wq.get("inet_loss_pct"),
+                "inet_jitter_ms": wq.get("inet_jitter_ms"),
+                "inet_avg_ms":    wq.get("inet_avg_ms"),
+                "gw_avg_ms":      wq.get("gw_avg_ms"),
+                "dns_ms":         wq.get("dns_ms"),
+                "alerts":         wq.get("alerts", []),
+            }
+        except Exception as e:
+            logger.warning(f"WiFi quality indisponível: {e}")
+            payload["wifi_quality"] = {}
+
         logger.info("--- [STAGE] 10/10: Análise Gemini AI ---")
-        if self.config.gemini_api_key:
+        # Relê a chave do .env em runtime para suportar troca sem reiniciar
+        _env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        _gemini_key = self.config.gemini_api_key
+        try:
+            with open(_env_path) as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line.startswith("GEMINI_API_KEY="):
+                        _gemini_key = _line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        except Exception:
+            pass
+        if _gemini_key:
             # Desativado cache para validação de Hot-Reload
             logger.info("📡 Iniciando requisição real ao Gemini...")
             try:
-                gemini = GeminiAnalyzer(api_key=self.config.gemini_api_key, model=self.config.gemini_model)
+                gemini = GeminiAnalyzer(api_key=_gemini_key, model=self.config.gemini_model)
                 payload["ai_diagnosis"] = gemini.analyze(payload)
                 logger.info("✅ Gemini retornou dados com sucesso.")
             except Exception as e:

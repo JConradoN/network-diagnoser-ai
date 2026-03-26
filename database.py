@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS scans (
 );
 '''
 
+WIFI_METRICS_TABLE_SQL = '''
+CREATE TABLE IF NOT EXISTS wifi_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    inet_loss_pct REAL,
+    inet_jitter_ms REAL,
+    inet_avg_ms REAL,
+    gw_avg_ms REAL,
+    dns_ms REAL
+);
+'''
+
 def get_connection():
     try:
         return sqlite3.connect(DB_PATH)
@@ -87,10 +99,44 @@ def init_db():
         with closing(get_connection()) as conn:
             with conn:
                 conn.execute(SCANS_TABLE_SQL)
+                conn.execute(WIFI_METRICS_TABLE_SQL)
     except Exception as e:
         import logging
         logger = logging.getLogger("database")
         logger.error(f"Erro ao inicializar o banco: {e}")
+
+
+def insert_wifi_metric(inet_loss_pct, inet_jitter_ms, inet_avg_ms, gw_avg_ms, dns_ms):
+    try:
+        with closing(get_connection()) as conn:
+            with conn:
+                conn.execute(
+                    '''INSERT INTO wifi_metrics
+                       (timestamp, inet_loss_pct, inet_jitter_ms, inet_avg_ms, gw_avg_ms, dns_ms)
+                       VALUES (?, ?, ?, ?, ?, ?)''',
+                    (datetime.now().isoformat(),
+                     inet_loss_pct, inet_jitter_ms, inet_avg_ms, gw_avg_ms, dns_ms)
+                )
+    except Exception as e:
+        import logging
+        logging.getLogger("database").error(f"Erro ao salvar wifi_metric: {e}")
+
+
+def get_wifi_metrics_recent(limit: int = 60) -> list:
+    """Retorna os últimos N registros de qualidade WiFi para sparklines."""
+    try:
+        with closing(get_connection()) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''SELECT timestamp, inet_loss_pct, inet_jitter_ms, inet_avg_ms, gw_avg_ms, dns_ms
+                   FROM wifi_metrics ORDER BY id DESC LIMIT ?''',
+                (limit,)
+            )
+            rows = cur.fetchall()
+            keys = ['timestamp', 'inet_loss_pct', 'inet_jitter_ms', 'inet_avg_ms', 'gw_avg_ms', 'dns_ms']
+            return [dict(zip(keys, r)) for r in reversed(rows)]
+    except Exception:
+        return []
 
 def insert_scan(device_count, temp_mikrotik, raw_json, ai_analysis):
     with closing(get_connection()) as conn:
