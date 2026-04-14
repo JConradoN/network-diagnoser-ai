@@ -2,6 +2,8 @@
 
 Diagnóstico e monitoramento de redes com FastAPI, CLI, dashboard NOC, integração MikroTik, análise IA e relatórios avançados.
 
+![Engage Mission — configuração de scan modular com seleção de coletores](docs/screenshots/fox-noc_engage.jpg)
+
 ## Principais Recursos
 - Dashboard NOC em tempo real (Tailwind, Chart.js)
 - Diagnóstico completo: ARP, SNMP, mDNS, SSDP, latência, IA Gemini
