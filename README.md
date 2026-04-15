@@ -155,6 +155,23 @@ These are events the system detects automatically in a live home/SMB network:
 
 ---
 
+## Part of the FOX Network Intelligence Suite
+
+This tool is designed to work alongside **[Home Net Monitor](https://github.com/JConradoN/home-net-monitor)** as a complementary pair:
+
+| Tool | Role | When to use |
+|---|---|---|
+| **[Home Net Monitor](https://github.com/JConradoN/home-net-monitor)** | Passive 24/7 daemon — detects and alerts | Always running in the background |
+| **Network Diagnoser AI** (this) | Active on-demand scanner — deep diagnosis | When an alert fires and you need to investigate |
+
+**Typical workflow:**
+1. Home Net Monitor fires a "gateway latency spike" alert
+2. You trigger Network Diagnoser AI to run a full scan
+3. Diagnoser performs ARP sweep, SNMP deep-dive, mDNS/SSDP discovery, and sends structured data to an LLM
+4. You get a root cause analysis and specific fix steps in plain English
+
+---
+
 ## Background
 
 Built by a network engineer with 30 years of infrastructure experience who got tired of tools that show graphs but don't explain problems.
